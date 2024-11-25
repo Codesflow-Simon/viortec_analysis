@@ -1,9 +1,0 @@
-test_one
-30 sec calib
-at 40 sec change to axis calib
-
-test_two
-30 secon calibr
-at 40 sec change to axis calib
-1:30 mass range 
-~2 min flexion

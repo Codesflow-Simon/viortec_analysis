@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Data
+data/processed/*
+!data/processed/.gitkeep
+
+# IDE
+.vscode/
+.idea/

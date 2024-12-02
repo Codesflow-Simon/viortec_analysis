@@ -1,0 +1,23 @@
+test one-
+Tibia slipped towards end, after flexion movement
+
+Calib test one
+Calib test two, near the end, removed the femur and moved it though space, did not see significant changes on the live log
+
+Test two - flexion
+30 seconds of flexion only
+32 seconds of lateral
+
+Test three - extention
+30 seconds of calibration
+10 second break
+30 second in plane
+30 second out of plane
+
+X - straight up
+Y - towards 6 pin side
+Z - text "BNO055"
+(Not right hand coordinates??????)
+
+Test four - extention
+moved and reatteched test three

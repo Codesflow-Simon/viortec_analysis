@@ -1,0 +1,15 @@
+# Get XServ up (WSL)
+# Set up X11 display
+unset DISPLAY
+export DISPLAY=$(grep -m 1 nameserver /etc/resolv.conf | awk '{print $2}'):0
+source ~/.bashrc
+
+echo $DISPLAY
+
+# Enable X11 forwarding and test
+xhost +
+xeyes  # If you have x11-apps installed
+
+# COM port forwarding (POWERSHELL)
+usbipd attach --wsl --busid 2-2
+usbipd detach --busid 2-2

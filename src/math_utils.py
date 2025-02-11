@@ -141,19 +141,40 @@ def is_rotation_matrix(R: np.ndarray, tolerance: float = 1e-6) -> bool:
     
     return True 
 
-def quaternion_to_rotation_matrix(q: np.ndarray) -> np.ndarray:
+def quaternion_to_rotation_matrix(q):
     """Convert quaternion to rotation matrix
     
     Args:
-        q: Quaternion as numpy array [w,x,y,z]
+        q: Nx4 array of quaternions [w, x, y, z]
         
     Returns:
         3x3 rotation matrix
     """
-    w, x, y, z = q
+    # Normalize quaternion
+    q = q.reshape(-1, 4)  # Ensure Nx4 shape
+    norm = np.linalg.norm(q)
+    if not np.isclose(norm, 1.0, rtol=1e-2):
+        print(f"Warning: Quaternion not normalized: {norm}")
+        if norm < 1e-6:
+            print(f"Error: Zero quaternion detected: {q}")
+            return None
+        q = q / norm
+        
+    w, x, y, z = q[0]
     
-    return np.array([
+    # Validate quaternion components
+    if np.any(np.isnan([w, x, y, z])):
+        print(f"Error: NaN in quaternion: w={w}, x={x}, y={y}, z={z}")
+        return None
+    # Convert to rotation matrix
+    R = np.array([
         [1 - 2*y*y - 2*z*z,     2*x*y - 2*w*z,     2*x*z + 2*w*y],
         [    2*x*y + 2*w*z, 1 - 2*x*x - 2*z*z,     2*y*z - 2*w*x],
         [    2*x*z - 2*w*y,     2*y*z + 2*w*x, 1 - 2*x*x - 2*y*y]
     ])
+    
+    # Validate rotation matrix
+    if not np.allclose(R @ R.T, np.eye(3), rtol=1e-3, atol=1e-3):
+        print(f"Warning: Non-orthogonal rotation matrix from quaternion: {q}")
+        
+    return R

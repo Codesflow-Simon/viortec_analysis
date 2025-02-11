@@ -5,19 +5,41 @@
 #include <utility/imumaths.h>
 #include <math.h>
 #include <MatrixMath.h>
+#include <EEPROM.h>
 
 
 /***** BNO055 setup *****/
+// For Arduino Uno/Nano:
+// Connect SCL to Analog pin 5 (A5)
+// Connect SDA to Analog pin 4 (A4)
+
 #define BNO055_SAMPLERATE_DELAY_MS (50)
 // Check I2C device address and correct line below (by default address is 0x29 or 0x28)
-Adafruit_BNO055 bno_femur = Adafruit_BNO055(-1, 0x28, &Wire);
-Adafruit_BNO055 bno_tibia = Adafruit_BNO055(-1, 0x29, &Wire);
+Adafruit_BNO055 bno_femur = Adafruit_BNO055(-1, 0x29, &Wire);
+Adafruit_BNO055 bno_tibia = Adafruit_BNO055(-1, 0x28, &Wire);
 long int start_time;
 
+// EEPROM addresses for calibration data
+#define EEPROM_FEMUR_ADDR 0
+#define EEPROM_TIBIA_ADDR (EEPROM_FEMUR_ADDR + sizeof(adafruit_bno055_offsets_t))
+
+// Message type prefixes
+#define DATA_PREFIX "D,"        // Regular data
+#define CAL_STATUS_PREFIX "C,"  // Calibration status
+#define INFO_PREFIX "I,"        // Information messages
+#define ERROR_PREFIX "E,"       // Error messages
+#define COMMAND_SAVE_CAL "SAVE_CAL"    // Command to save calibration
+#define COMMAND_PAUSE "PAUSE"          // Command to pause data streaming
+#define COMMAND_RESUME "RESUME"        // Command to resume data streaming
+
 /***** BNO055 setup *****/
-void vector_print(imu::Vector<3> euler, bool convert_to_radians=false);
+// Forward declarations - remove default argument here
+void vector_print(imu::Vector<3> euler, bool convert_to_radians);
 void quaternion_print(imu::Quaternion quaternion);
 double* quaternion_multiply(double q1[4], double q2[4]);
+
+// Add with other global variables at the top
+bool streaming_enabled = true;
 
 void setup(void)
 {
@@ -25,105 +47,106 @@ void setup(void)
   start_time = millis();
   while (!Serial) delay(10);  // wait for serial port to open!
 
-  // Serial.println("\nBNO055\n");
-  Serial.print("time,femur_w,femur_x,femur_y,femur_z,femur_acc_x,femur_acc_y,femur_acc_z,tibia_w,tibia_x,tibia_y,tibia_z,tibia_acc_x,tibia_acc_y,tibia_acc_z,gf,mf,gt,mt\n");
-
-  /* Initialise the sensor */
-  if(!bno_femur.begin())
+  /* Initialise the sensors */
+  if(!bno_femur.begin() || !bno_tibia.begin())
   {
-    /* There was a problem detecting the BNO055 ... check your connections */
-    Serial.print("Ooops, no BNO055 on femur not detected ... Check your wiring or I2C ADDR!\n");
+    Serial.print(ERROR_PREFIX);
+    Serial.println("No BNO055 detected ... Check your wiring or I2C ADDR!");
     while(1);
   }
 
-  if(!bno_tibia.begin())
-  {
-    /* There was a problem detecting the BNO055 ... check your connections */
-    Serial.print("Ooops, no BNO055 on tibia not detected ... Check your wiring or I2C ADDR!\n");
-  }
+  Serial.println("cc");
 
-  delay(1000);
+
+  // Set initial mode to NDOF (9-DOF fusion)
+  bno_femur.setMode(adafruit_bno055_opmode_t::OPERATION_MODE_NDOF);
+  bno_tibia.setMode(adafruit_bno055_opmode_t::OPERATION_MODE_NDOF);
+  
+  // Add these lines to set external crystal use
+  bno_femur.setExtCrystalUse(true);
+  bno_tibia.setExtCrystalUse(true);
+  
+  delay(1000);  // Wait for sensors to stabilize
+  
+  // Try to load calibration
+  loadCalibration();
+  
+  // Now we're calibrated, start normal operation
+  Serial.print(INFO_PREFIX);
+  Serial.println("Starting data stream");
+}
+
+void print_calibration_status() {
+  uint8_t system_femur, gyro_femur, accel_femur, mag_femur;
+  uint8_t system_tibia, gyro_tibia, accel_tibia, mag_tibia;
+  bno_femur.getCalibration(&system_femur, &gyro_femur, &accel_femur, &mag_femur);
+  bno_tibia.getCalibration(&system_tibia, &gyro_tibia, &accel_tibia, &mag_tibia);
+  Serial.print(system_femur);
+  Serial.print(",");
+  Serial.print(gyro_femur);
+  Serial.print(",");
+  Serial.print(accel_femur);
+  Serial.print(",");
+  Serial.print(mag_femur);
+  Serial.print(",");
+  Serial.print(system_tibia);
+  Serial.print(",");
+  Serial.print(gyro_tibia);
+  Serial.print(",");
+  Serial.print(accel_tibia);
+  Serial.print(",");
+  Serial.println(mag_tibia);
 }
 
 void loop(void)
 {
-  /* Display calibration status for each sensor. */
-  uint8_t system_femur, gyro_femur, accel_femur, mag_femur = 0;
-  uint8_t system_tibia, gyro_tibia, accel_tibia, mag_tibia = 0;
-  bno_femur.getCalibration(&system_femur, &gyro_femur, &accel_femur, &mag_femur);
-  bno_tibia.getCalibration(&system_tibia, &gyro_tibia, &accel_tibia, &mag_tibia);
+  // Check for incoming commands
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();  // Remove any whitespace/newlines
+    
+    if (command == COMMAND_SAVE_CAL) {
+      saveCalibration();
+      Serial.print(INFO_PREFIX);
+      Serial.println("Calibration saved!");
+    }
+    else if (command == COMMAND_PAUSE) {
+      streaming_enabled = false;
+      Serial.print(INFO_PREFIX);
+      Serial.println("Data streaming paused");
+    }
+    else if (command == COMMAND_RESUME) {
+      streaming_enabled = true;
+      Serial.print(INFO_PREFIX);
+      Serial.println("Data streaming resumed");
+    }
+  }
 
-    /* Display calibration status for each sensor. */
-  // Serial.print("CALIBRATION FEMUR: Sys=");
-  // Serial.print(system_femur, DEC);
-  // Serial.print(" Gyro=");
-  // Serial.print(gyro_femur, DEC);
-  // Serial.print(" Accel=");
-  // Serial.print(accel_femur, DEC);
-  // Serial.print(" Mag=");
-  // Serial.print(mag_femur, DEC);
-  // Serial.print("CALIBRATION TIBIA: Sys=");
-  // Serial.print(system_tibia, DEC);
-  // Serial.print(" Gyro=");
-  // Serial.print(gyro_tibia, DEC);
-  // Serial.print(" Accel=");
-  // Serial.print(accel_tibia, DEC);
-  // Serial.print(" Mag=");
-  // Serial.println(mag_tibia, DEC);
+  if (!streaming_enabled) {
+    delay(100);  // Small delay when paused to prevent busy-waiting
+    return;
+  }
 
-  // if (gyro_femur + mag_femur < 6) Serial.print("Femur needs calibration\n");
-  // if (gyro_tibia + mag_tibia < 6) Serial.print("Tibia needs calibration\n");
-
-  // Possible vector values can be:
-  // - VECTOR_ACCELEROMETER - m/s^2
-  // - VECTOR_MAGNETOMETER  - uT
-  // - VECTOR_GYROSCOPE     - rad/s
-  // - VECTOR_EULER         - degrees
-  // - VECTOR_LINEARACCEL   - m/s^2
-  // - VECTOR_GRAVITY       - m/s^2
-
-  // Quaternion data
+  // Get quaternion and acceleration data
   imu::Quaternion femur = bno_femur.getQuat();
   imu::Quaternion tibia = bno_tibia.getQuat();
-  imu::Vector<3>  femur_acc = bno_femur.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
-  imu::Vector<3>  tibia_acc = bno_tibia.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
-  imu::Quaternion relative_tibia = femur.conjugate() * tibia;    // Tibia in femur frame
-  imu::Vector<3> relative_tibia_euler = relative_tibia.toEuler();
+  imu::Vector<3> femur_acc = bno_femur.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+  imu::Vector<3> tibia_acc = bno_tibia.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
 
-
-  // vector_print(relative_tibia_euler, true);
+  // Print data with prefix
+  Serial.print(DATA_PREFIX);
   Serial.print(millis()-start_time);
   Serial.print(",");
   quaternion_print(femur);
   Serial.print(",");
   quaternion_print(tibia);
   Serial.print(",");
-  vector_print(femur_acc);
+  vector_print(femur_acc, false);
   Serial.print(",");
-  vector_print(tibia_acc);
+  vector_print(tibia_acc, false);
   Serial.print(",");
-  Serial.print(gyro_femur);
-  Serial.print(",");
-  Serial.print(mag_femur);
-  Serial.print(",");
-  Serial.print(gyro_tibia);
-  Serial.print(",");
-  Serial.print(mag_tibia);
-  Serial.print("\n");
-
-
-  double knee_flexion = 180 + relative_tibia_euler[1]*180/PI;
-  double knee_valgus = relative_tibia_euler[0]*180/PI;
-
-  
-  imu::Vector<3> femur_gravity = bno_femur.getVector(Adafruit_BNO055::VECTOR_GRAVITY);
-  double azimuth = sqrt(femur_gravity[0]*femur_gravity[0] + femur_gravity[1]*femur_gravity[1]) + 1E-6;
-  double femur_pitch = atan(femur_gravity[2] / azimuth)*180/PI;
-
-
-  // Serial.print("Femur pitch      : "); Serial.println(femur_pitch);
-  // Serial.print("Knee flexion     : "); Serial.println(knee_flexion);
-  // Serial.print("Knee varus/valgus: "); Serial.println(knee_valgus);
+  print_calibration_status();
+  Serial.println();
 
   delay(BNO055_SAMPLERATE_DELAY_MS);
 }
@@ -155,4 +178,56 @@ void quaternion_print(imu::Quaternion quaternion) {
   Serial.print(quaternion.y(), 4);
   Serial.print(",");
   Serial.print(quaternion.z(), 4);
+}
+
+void saveCalibration()
+{
+  adafruit_bno055_offsets_t femur_offsets;
+  adafruit_bno055_offsets_t tibia_offsets;
+  
+  // Get the sensor's calibration data
+  bool femur_success = bno_femur.getSensorOffsets(femur_offsets);
+  bool tibia_success = bno_tibia.getSensorOffsets(tibia_offsets);
+
+  if (femur_success && tibia_success) {
+    // Save femur calibration
+    EEPROM.put(EEPROM_FEMUR_ADDR, femur_offsets);
+    // Save tibia calibration
+    EEPROM.put(EEPROM_TIBIA_ADDR, tibia_offsets);
+    Serial.print(INFO_PREFIX);
+    Serial.println("Calibration data saved successfully");
+  } else {
+    Serial.print(ERROR_PREFIX);
+    Serial.println("Failed to get calibration data from sensors");
+  }
+}
+
+void loadCalibration()
+{
+  adafruit_bno055_offsets_t femur_offsets;
+  adafruit_bno055_offsets_t tibia_offsets;
+
+  // Read calibration data from EEPROM
+  EEPROM.get(EEPROM_FEMUR_ADDR, femur_offsets);
+  EEPROM.get(EEPROM_TIBIA_ADDR, tibia_offsets);
+
+  // Reset the sensors
+  bno_femur.setMode(adafruit_bno055_opmode_t::OPERATION_MODE_CONFIG);
+  bno_tibia.setMode(adafruit_bno055_opmode_t::OPERATION_MODE_CONFIG);
+  delay(25);
+  
+  // Use public method for system reset instead of private write8
+  bno_femur.setExtCrystalUse(true);  // This triggers a reset
+  bno_tibia.setExtCrystalUse(true);
+  delay(50);
+
+  // Apply offsets
+  bno_femur.setSensorOffsets(femur_offsets);
+  bno_tibia.setSensorOffsets(tibia_offsets);
+
+  // Set back to NDOF mode
+  bno_femur.setMode(adafruit_bno055_opmode_t::OPERATION_MODE_NDOF);
+  bno_tibia.setMode(adafruit_bno055_opmode_t::OPERATION_MODE_NDOF);
+  
+  delay(25);  // Wait for mode switch
 }

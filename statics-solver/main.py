@@ -37,16 +37,23 @@ def main(data=dict()):
     # Points of interest
     hip_point = Point([0, femur_length, 0], world_frame)
     knee_point = Point([0, 0, 0], world_frame)
-    lig_top_point = Point([femur_perp, 0, 0], world_frame)
+    lig_top_pointA = Point([femur_perp, 0, 0], world_frame)
+    lig_top_pointB = Point([-femur_perp, 0, 0], world_frame)
     lig_on_tib_vis = Point([0, -tibia_para, 0], tibia_frame)
-    lig_bottom_point = Point([tibia_perp, -tibia_para, 0], tibia_frame)
+    lig_bottom_pointA = Point([tibia_perp, -tibia_para, 0], tibia_frame)
+    lig_bottom_pointB = Point([-tibia_perp, -tibia_para, 0], tibia_frame)
     application_point = Point([0, -application_length, 0], tibia_frame)
 
     # Springs
-    lig_spring = Spring(lig_top_point, lig_bottom_point, "LigSpring", 50, ligament_slack_length)
+    lig_springA = LinearSpring(lig_top_pointA, lig_bottom_pointA, "LigSpring", 5, ligament_slack_length)
+    lig_springB = LinearSpring(lig_top_pointB, lig_bottom_pointB, "LigSpring", 5, ligament_slack_length)
+
     # Register spring forces on the bodies
-    femur_body.add_external_force(lig_spring.get_force_on_point1())
-    tibia_body.add_external_force(lig_spring.get_force_on_point2())
+    femur_body.add_external_force(lig_springA.get_force_on_point1())
+    tibia_body.add_external_force(lig_springA.get_force_on_point2())
+
+    femur_body.add_external_force(lig_springB.get_force_on_point1())
+    tibia_body.add_external_force(lig_springB.get_force_on_point2())
 
     # Forces
 
@@ -63,29 +70,31 @@ def main(data=dict()):
     tibia_body.add_external_force(applied_force)
 
     force_expression, torque_expression = tibia_body.get_net_forces()
-    force_expression.simplify()
-    torque_expression.simplify()
+    force_expression.simplify(trig=True)
+    torque_expression.simplify(trig=True)
 
     print(f"Force expression: {force_expression}")
     print(f"Torque expression: {torque_expression}")
 
     # Solving
 
-    unknowns = [x for x in knee_vec_sym + force_vec_sym if not isinstance(x, (int, float))]
+    unknown_from_system = [x for x in knee_vec_sym + force_vec_sym]
+    unknown_inputs = [v for k,v in data.items() if not isinstance(v, (int, float))]
+    unknowns = unknown_from_system + unknown_inputs
+    unknowns = [x for x in unknowns if not isinstance(x, (int, float))]
     print(f"Unknowns: {unknowns}")
 
     # solve forces equal to zero
     equations_to_solve = list(force_expression) + list(torque_expression)
     solutions = sympy.solve(equations_to_solve, unknowns)
-    print(f"Solutions: {solutions}")
+    print(f"\nSolutions: {solutions}")
 
     # Substitute solutions back into forces
     knee_force.force.coordinates = knee_force.force.coordinates.subs(solutions)
     applied_force.force.coordinates = applied_force.force.coordinates.subs(solutions)
 
-    print(f"Knee force: {knee_force.force.coordinates}")
-    print(f"Applied force: {applied_force.force.coordinates}")
-    print(f"Lig spring force: {lig_spring.get_force_on_point2().force.coordinates}")
+    for unknown in unknowns:
+        print(f"{unknown}: {unknown.evalf()}")
 
     # Visualise the system
 
@@ -93,36 +102,43 @@ def main(data=dict()):
     vis.add_point(knee_point, label="Knee")
     vis.add_point(hip_point, label="Hip")
 
-    vis.add_point(lig_top_point, label="LigTop")
-    vis.add_point(lig_bottom_point, label="LigBottom")
+    vis.add_point(lig_top_pointA, label="LigTopA")
+    vis.add_point(lig_top_pointB, label="LigTopB")
+    vis.add_point(lig_bottom_pointA, label="LigBottomA")
+    vis.add_point(lig_bottom_pointB, label="LigBottomB")
     vis.add_point(application_point, label="Application")
 
     vis.add_line(knee_point, hip_point, label="Femur")
-    vis.add_line(knee_point, lig_top_point, label="FemurBottom")
-    vis.add_line(lig_top_point, lig_bottom_point, label="Lig", color="red")
+    vis.add_line(knee_point, lig_top_pointA, label="FemurBottom")
+    vis.add_line(knee_point, lig_top_pointB, label="FemurBottom")
+    vis.add_line(lig_top_pointA, lig_bottom_pointA, label="Lig", color="red")
+    vis.add_line(lig_top_pointB, lig_bottom_pointB, label="Lig", color="red")
     vis.add_line(knee_point, application_point, label="Tibia")
-    vis.add_line(lig_on_tib_vis, lig_bottom_point, label="Lig")
+    vis.add_line(lig_on_tib_vis, lig_bottom_pointA, label="TibalPlataeuA")
+    vis.add_line(lig_on_tib_vis, lig_bottom_pointB, label="TibalPlataeuB")
 
     try:
         vis.add_force(knee_force, label="KneeForce")
         vis.add_force(applied_force, label="AppliedForce")
-        vis.add_force(lig_spring.get_force_on_point2(), label="LigSpringForce")
+        vis.add_force(lig_springA.get_force_on_point2(), label="LigSpringForceA")
+        vis.add_force(lig_springB.get_force_on_point2(), label="LigSpringForceB")
     except Exception as e:
-        print(f"Error adding force, probably non-")
+        print(f"Error adding force, probably non-numeric values")
 
     vis.render()
 
 if __name__ == "__main__":
-    theta_sym = Symbol('theta')
+    # theta_sym = Symbol('theta')
+    theta_sym = 0.2
 
     data_symbolic = {
         'femur_length': 0.5, # Distance from hip to knee
-        'femur_perp': 0.05, # Perpendicular distance from hip to ligament
-        'tibia_perp': 0.05, # Perpendicular (to the tibia) distance from knee to ligament
+        'femur_perp': 0.1, # Perpendicular distance from hip to ligament
+        'tibia_perp': 0.1, # Perpendicular (to the tibia) distance from knee to ligament
         'tibia_para': 0.05, # Distance (down the tibia) from knee to ligament
-        'application_length': 0.10, # Distance(down the tibia)
-        'theta': 0,
-        'ligament_slack_length': 0.01
+        'application_length': 0.20, # Distance(down the tibia)
+        'theta': theta_sym,
+        'ligament_slack_length': 0.05
     }
 
     main(data_symbolic)

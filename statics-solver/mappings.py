@@ -91,40 +91,62 @@ class RotationalMapping(LinearMapping):
         self.matrix = matrix
 
         identity_matrix = sympy.eye(3)
-        try:
-            is_orthogonal = sympy.simplify(self.matrix.T * self.matrix - identity_matrix).is_zero_matrix
-            if not is_orthogonal:
-                 # Fallback for numeric matrices with small float errors if symbolic simplify fails
-                 if hasattr(self.matrix, 'is_symbolic') and not self.matrix.is_symbolic():
-                     # Check if the norm of the difference is small for numeric matrices
-                     diff_matrix = (self.matrix.T.evalf() * self.matrix.evalf()) - identity_matrix.evalf()
-                     if not (diff_matrix.norm() < 1e-8):
-                         raise ValueError("Matrix is not orthogonal - not a valid rotation matrix")
-                 else: # If symbolic and simplify didn't prove it, raise
-                    raise ValueError("Matrix is not orthogonal (symbolic check failed) - not a valid rotation matrix")
+        # Determine if the matrix is primarily numeric or symbolic
+        # A matrix is symbolic if any of its elements are symbolic (excluding numeric constants like S.One)
+        # self.matrix.is_symbolic is True if it contains any Symbol, False if all are numbers/numeric constants.
+        matrix_is_numeric = not self.matrix.is_symbolic
 
-            det_matrix = self.matrix.det()
-            is_det_one = sympy.simplify(det_matrix - 1) == 0
-            if not is_det_one:
-                if hasattr(det_matrix, 'is_symbolic') and not det_matrix.is_symbolic():
-                    if not sympy.Abs(det_matrix.evalf() - 1) < 1e-8:
-                        raise ValueError("Matrix determinant is not 1 - not a valid rotation matrix")
-                else:
-                    raise ValueError("Matrix determinant is not 1 (symbolic check failed) - not a valid rotation matrix")
+        # 1. Orthogonality Check (M.T * M == I)
+        if matrix_is_numeric:
+            # Numeric check: ||M.T * M - I||_F < tolerance
+            # Ensure matrices are evalf'd for consistent numeric operations
+            m_T_evalf = self.matrix.T.evalf()
+            m_evalf = self.matrix.evalf()
+            identity_evalf = identity_matrix.evalf()
+            diff_ortho_evalf = (m_T_evalf * m_evalf) - identity_evalf
+            if not (diff_ortho_evalf.norm() < 1e-8): # Frobenius norm
+                raise ValueError(f"Matrix is not orthogonal (numeric check failed). ||M.T*M - I||_F = {diff_ortho_evalf.norm().evalf()}")
+        else:
+            # Symbolic check: simplify(M.T * M - I) is ZeroMatrix
+            if not sympy.simplify(self.matrix.T * self.matrix - identity_matrix).norm() < 1e-8:
+                # Attempt trigsimp as a fallback for symbolic cases involving trigonometry
+                if not sympy.trigsimp(self.matrix.T * self.matrix - identity_matrix).norm() < 1e-8:
+                    raise ValueError("Matrix is not orthogonal (symbolic check failed, even after trigsimp) - not a valid rotation matrix")
 
-        except AttributeError:
-            pass
+        # 2. Determinant Check (det(M) == 1)
+        det_matrix = self.matrix.det()
+        if matrix_is_numeric:
+            # Numeric check: |det(M) - 1| < tolerance
+            if not (sympy.Abs(det_matrix.evalf() - 1) < 1e-8):
+                raise ValueError(f"Matrix determinant is not 1 (numeric check failed). |det(M) - 1| = {sympy.Abs(det_matrix.evalf() - 1).evalf()}")
+        else:
+            # Symbolic check: simplify(det(M) - 1) is Zero
+            simplified_det_check = sympy.simplify(det_matrix - 1)
+            if not simplified_det_check.is_zero:
+                # Attempt trigsimp as a fallback
+                if not sympy.trigsimp(simplified_det_check) < 1e-8:
+                    raise ValueError(f"Matrix determinant is not 1 (symbolic check failed, even after trigsimp). det(M)-1 simplified to: {sympy.trigsimp(simplified_det_check)}")
 
+        # 3. Column unit length check (||col|| == 1)
         for i in range(3):
             col_vec = self.matrix[:, i]
-            norm_sq = col_vec.norm()**2
-            is_unit_len = sympy.simplify(norm_sq - 1) == 0
-            if not is_unit_len:
-                 if hasattr(norm_sq, 'is_symbolic') and not norm_sq.is_symbolic():
-                     if not sympy.Abs(norm_sq.evalf() - 1) < 1e-8:
-                         raise ValueError(f"Column {i} is not a unit vector (numeric check failed)")
-                 else:
-                    pass
+            norm_sq = col_vec.norm()**2  # norm()**2 is computationally cheaper than norm() and sqrt.
+            if matrix_is_numeric:
+                # Numeric check: |norm_sq - 1| < tolerance
+                if not sympy.Abs(norm_sq.evalf() - 1) < 1e-8:
+                    raise ValueError(f"Column {i} is not a unit vector (numeric check failed). |norm_sq - 1| = {sympy.Abs(norm_sq.evalf() - 1).evalf()}")
+            else:
+                # Symbolic check: simplify(norm_sq - 1) is Zero
+                # Original code had a 'pass' here if simplify didn't yield zero,
+                # implying orthogonality and det=1 were considered sufficient for symbolic.
+                # We'll keep it less strict for symbolic column norms if direct simplify fails,
+                # as proving norm=1 symbolically can be hard for complex expressions.
+                if not sympy.simplify(norm_sq - 1).is_zero:
+                    if not sympy.trigsimp(norm_sq - 1).is_zero:
+                        # This might be too strict. Orthogonality + Det=1 should ensure unit columns for R*R.T = I
+                        # For now, let's reflect the original leniency for symbolic cases here.
+                        # warnings.warn(f"Symbolic column {i} norm squared minus 1 did not simplify to zero: {sympy.trigsimp(norm_sq - 1)}")
+                        pass # Matching original behavior of not strictly failing symbolic column norm checks if simplify doesn't make it zero
 
     @staticmethod
     def from_euler_angles(euler_angles: np.ndarray):

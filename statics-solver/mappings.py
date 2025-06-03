@@ -186,6 +186,16 @@ class RotationalMapping(LinearMapping):
             
         return super().apply(vector)
 
+    def get_inverse(self):
+        self.realise_inverse()
+        return RotationalMapping(self.inverse_matrix)
+
+    def __repr__(self):
+        return f"RotationalMapping: {self.matrix}"
+    
+    def __str__(self):
+        return f"RotationalMapping: {self.matrix}"
+
 class TranslationMapping(InvertibleMapping):
     def __init__(self, vector: np.ndarray):
         if isinstance(vector, np.ndarray):
@@ -252,6 +262,11 @@ class TranslationMapping(InvertibleMapping):
 
 class RigidBodyMapping(InvertibleMapping):
     def __init__(self, rotation: RotationalMapping, translation: TranslationMapping):
+        if not isinstance(rotation, RotationalMapping):
+            raise TypeError("Rotation must be a RotationalMapping")
+        if not isinstance(translation, TranslationMapping):
+            raise TypeError("Translation must be a TranslationMapping")
+        
         self.rotation = rotation
         self.translation = translation
 
@@ -264,7 +279,11 @@ class RigidBodyMapping(InvertibleMapping):
         return self.rotation.inverse_apply(translated_vector)
 
     def get_inverse(self):
-        return RigidBodyMapping(self.rotation.get_inverse(), self.translation.get_inverse())
+        # For a rigid body transform T(x) = Rx + t
+        # The inverse transform is T^(-1)(x) = R^(-1)(x - t)
+        inv_rot = self.rotation.get_inverse()
+        inv_trans = TranslationMapping(-inv_rot.apply(self.translation.vector))
+        return RigidBodyMapping(inv_rot, inv_trans)
 
     def __str__(self):
         return f"RigidBodyMapping: {self.rotation} + {self.translation}"

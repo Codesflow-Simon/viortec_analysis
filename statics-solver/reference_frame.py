@@ -82,6 +82,9 @@ class ReferenceFrame:
     def __repr__(self):
         return self.name
 
+    def __hash__(self):
+        return hash((self.name, self.is_ground_frame, self.parent, tuple(self.children), self.rigid_body_mapping))
+
 class Point:
     def __init__(self, coordinates, reference_frame):
         """
@@ -116,7 +119,11 @@ class Point:
         return Point(new_coords_matrix, self.reference_frame.parent)
 
     def convert_to_frame(self, target_frame: 'ReferenceFrame'):
-        ancestor, transform_A, transform_B = self.reference_frame.find_common_ancestor(target_frame)
+        try:
+            ancestor, transform_A, transform_B = self.reference_frame.find_common_ancestor(target_frame)
+        except ValueError as e:
+            raise ValueError(f"Cannot convert point {self} to frame {target_frame} because they have no common ancestor. {e}")
+        
         current_point_coords = self.coordinates
         current_point_frame = self.reference_frame
 
@@ -149,6 +156,13 @@ class Point:
 
 
         return Point(current_point_coords, target_frame)
+
+    def check_numeric(self):
+        if not isinstance(self.coordinates, sympy.Matrix):
+            return True
+        if not self.coordinates.is_numeric():
+            return False
+        return True
     
     def _check_same_frame(self, other):
         """Check if both points are in the same reference frame"""
@@ -224,6 +238,9 @@ class Point:
     
     def __repr__(self):
         return f"Point in {self.reference_frame.name} frame: {self.coordinates.tolist()}"
+    
+    def __hash__(self):
+        return hash((self.coordinates, self.reference_frame))
 
     
         

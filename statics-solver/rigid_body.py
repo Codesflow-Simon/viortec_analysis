@@ -4,6 +4,13 @@ import sympy
 
 class Force:
     def __init__(self, name: str, force: Point, application_point: Point):
+        """
+        A force is a vector that is applied to a point.
+        Args:
+            name: The name of the force.
+            force: The force vector.
+            application_point: The point at which the force is applied.
+        """
         self.name = name
         self.force = force
         self.application_point = application_point
@@ -15,8 +22,19 @@ class Force:
         self.force = self.force.convert_to_frame(frame)
         self.application_point = self.application_point.convert_to_frame(frame)
 
+    def get_force_in_frame(self, frame: ReferenceFrame):
+        force = self.force.convert_to_frame(frame)
+        application_point = self.application_point.convert_to_frame(frame)
+        return Force(self.name, force, application_point)
+
     def __neg__(self):
         return Force(self.name, -self.force, self.application_point)
+
+    def __str__(self):
+        return f"Force: {self.name}, Vector: {self.force}, Application Point: {self.application_point}"
+    
+    def __repr__(self):
+        return f"Force: {self.name}, Vector: {self.force}, Application Point: {self.application_point}"
 
 class Torque:
     def __init__(self, name: str, torque: Point):
@@ -52,7 +70,7 @@ class RigidBody:
         if torque is not None:
             self.torques.append(torque)
 
-    def add_force(self, force: Force, other_body: RigidBody):
+    def add_force_pair(self, force: Force, other_body: "RigidBody"):
         """
         Add a force to the body and negative the force on the other body.
         """
@@ -60,7 +78,7 @@ class RigidBody:
             self.forces.append(force)
             other_body.forces.append(-force)
 
-    def add_torque(self, torque: Torque, other_body: RigidBody):
+    def add_torque_pair(self, torque: Torque, other_body: "RigidBody"):
         """
         Add a torque to the body and negative the torque on the other body.
         """
@@ -90,6 +108,7 @@ class RigidBody:
 
         # Sum forces and moments from Force objects
         for force_obj in self.forces:
+            print(f"Force: {force_obj}")
             # Ensure force vector is in body_frame
             if force_obj.force.reference_frame != self.body_frame:
                 current_force_in_body_frame = force_obj.force.convert_to_frame(self.body_frame)
@@ -111,6 +130,7 @@ class RigidBody:
 
         # Sum torques from Torque objects
         for torque_obj in self.torques:
+            print(f"Torque: {torque_obj}")
             # Ensure torque vector is in body_frame
             if torque_obj.torque.reference_frame != self.body_frame:
                 current_torque_in_body_frame = torque_obj.torque.convert_to_frame(self.body_frame)
@@ -118,7 +138,7 @@ class RigidBody:
                 current_torque_in_body_frame = torque_obj.torque
             
             net_moment_coords += current_torque_in_body_frame.coordinates
-            
+
         return net_force_coords, net_moment_coords
 
         

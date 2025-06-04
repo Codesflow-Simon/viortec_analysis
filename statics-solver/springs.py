@@ -13,21 +13,52 @@ class AbstractSpring:
             point_2 = point_2.convert_to_frame(point_1.reference_frame)
 
         self.name = name
-        self.point_1 = point_1
-        self.point_2 = point_2
+        self.set_points(point_1, point_2)
+
+    def set_points(self, point_1: Point=None, point_2: Point=None):
+        if point_1 is not None:
+            self.point_1 = point_1.convert_to_frame(self.point_1_orignal_frame)
+        if point_2 is not None:
+            self.point_2 = point_2.convert_to_frame(self.point_1_orignal_frame)
+
+    def get_points(self):
+        return self.point_1, self.point_2
 
     def get_force_direction_on_p2(self) -> Point:
         """
         Returns the unit vector Pointing from point_1 towards point_2.
         The force on point_2 will be along this direction if in tension, or opposite if in compression.
         """
-        direction_vector = self.point_1 - self.point_2
-        if direction_vector.norm().is_zero if hasattr(direction_vector.norm(), 'is_zero') else direction_vector.norm() == 0:
-            warnings.warn(f"Spring '{self.name}' has zero length; force direction is undefined, returning zero vector.")
-            return Point(sympy.zeros(3,1), self.point_1.reference_frame) 
-        direction_vector = direction_vector.normalize()
-        direction_vector = direction_vector.convert_to_frame(self.point_2_orignal_frame)
-        return direction_vector
+        direction_vector_obj = self.point_1 - self.point_2
+        norm_val = direction_vector_obj.norm()
+
+        # Assuming direction_vector_obj.coordinates returns a 3x1 sympy.Matrix
+        # Access components for piecewise definition
+        dx = direction_vector_obj.coordinates[0,0]
+        dy = direction_vector_obj.coordinates[1,0]
+        dz = direction_vector_obj.coordinates[2,0]
+
+        # Define each coordinate of the normalized vector using Piecewise
+        # If norm_val is 0, the component is 0; otherwise, it's component / norm_val.
+        px = sympy.Piecewise((dx / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        py = sympy.Piecewise((dy / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        pz = sympy.Piecewise((dz / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        
+        # The warning for zero length is harder to emit conditionally in a purely symbolic way.
+        # Consider if sympy.functions.elementary.miscellaneous.Min(1, norm_val) or similar could be used
+        # to suppress warnings. For now, focusing on numerical stability.
+        # if sympy.Eq(norm_val, 0) == sympy.true: # This comparison itself is tricky
+        #    warnings.warn(f"Spring '{self.name}' has zero length; force direction is undefined, using zero vector.")
+
+        piecewise_coord_matrix = sympy.Matrix([px, py, pz])
+        
+        # Create the Point with the symbolically safe coordinates
+        # The frame should be the original frame of the direction vector before conversion
+        result_point = Point(piecewise_coord_matrix, self.point_1.reference_frame)
+        
+        # Convert to the target frame as in the original logic
+        result_point = result_point.convert_to_frame(self.point_2_orignal_frame)
+        return result_point
 
     def get_force_direction_on_p1(self) -> Point:
         """
@@ -58,6 +89,9 @@ class AbstractSpring:
         """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""
         raise NotImplementedError("Subclasses must implement this method")
 
+    def get_energy(self) -> Expr:
+        """Returns the symbolic energy stored in the spring."""
+        raise NotImplementedError("Subclasses must implement this method")
 
 
 class LinearSpring(AbstractSpring):
@@ -92,12 +126,64 @@ class LinearSpring(AbstractSpring):
         current_length = self.get_spring_length()
         return self.k * (current_length - self.x0)
 
+    def get_energy(self) -> Expr:
+        """Returns the symbolic energy stored in the spring."""
+        current_length = self.get_spring_length()
+        return 0.5 * self.k * (current_length - self.x0)**2
+
 class TriLinearSpring(AbstractSpring):
-    def __init__(self, point_1: Point, point_2: Point, point_3: Point, name: str, k: [float, Expr], x0: [float, Expr]):
-        super().__init__(point_1, point_2, name, k, x0)
-        self.point_3 = point_3
+    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr], k_3: [float, Expr], a: [float, Expr], b: [float, Expr], x0: [float, Expr]):
+        """
+        A spring that has three different spring constants, and a different rest length for each spring.
+        Consider the spring strain, x, which is zero at rest length x0.
+        When x < a, the spring constant is k_1.
+        When a < x < b, the spring constant is k_2.
+        When x > b, the spring constant is k_3.
+        Note we consider that a,b could be postive (tension) or negative (compression).
+        """
+        
+        super().__init__(point_1, point_2, name)
+        
+        self.k_1 = k_1
+        self.k_2 = k_2
+        self.k_3 = k_3
+        self.a = a
+        self.b = b
+        self.x0 = x0
 
     def get_force_magnitude(self) -> Expr:
         """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""
-        current_length = (self.point_2 - self.point_1).norm()
-        return self.k * (self.x0 - current_length)
+        current_length = self.get_spring_length()
+        elongation = current_length - self.x0
+        return sympy.Piecewise(
+            (0, elongation < 0),
+            (self.k_1 * elongation, elongation < self.a),
+            (self.k_1 * self.a + self.k_2 * (elongation-self.a), elongation <= self.b),
+            (self.k_1 * self.a + self.k_2 * (self.b-self.a) + self.k_3 * (elongation-self.b), True)
+        )
+
+    def get_energy(self) -> Expr:
+        """Returns the symbolic energy stored in the spring."""
+
+        import warnings
+        warnings.warn("TriLinearSpring.get_energy() not tested")
+
+        current_length = self.get_spring_length()
+        elongation = current_length - self.x0
+        
+        if elongation < self.a:
+            return (
+                0.5 * self.k_2 * (self.a - self.x0)**2 +
+                0.5 * self.k_1 * (elongation - self.a)**2 +
+                self.k_2 * (self.a - self.x0) * (elongation - self.a)
+            )
+        elif elongation <= self.b:
+            return 0.5 * self.k_2 * (elongation - self.x0)**2
+        else:
+            return (
+                0.5 * self.k_2 * (self.b - self.x0)**2 +
+                0.5 * self.k_3 * (elongation - self.b)**2 +
+                self.k_2 * (self.b - self.x0) * (elongation - self.b)
+            )
+
+        

@@ -45,8 +45,8 @@ def main(data=dict()):
     application_point = Point([0, -application_length, 0], tibia_frame)
 
     # Springs
-    lig_springA = LinearSpring(lig_top_pointA, lig_bottom_pointA, "LigSpring", 5, ligament_slack_length)
-    lig_springB = LinearSpring(lig_top_pointB, lig_bottom_pointB, "LigSpring", 5, ligament_slack_length)
+    lig_springA = TriLinearSpring(lig_top_pointA, lig_bottom_pointA, "LigSpring", 1, 10, 50, 0.05, 0.1, ligament_slack_length)
+    lig_springB = TriLinearSpring(lig_top_pointB, lig_bottom_pointB, "LigSpring", 1, 10, 50, 0.05, 0.1, ligament_slack_length)
 
     # Register spring forces on the bodies
     femur_body.add_external_force(lig_springA.get_force_on_point1())
@@ -73,8 +73,8 @@ def main(data=dict()):
     force_expression.simplify(trig=True)
     torque_expression.simplify(trig=True)
 
-    print(f"Force expression: {force_expression}")
-    print(f"Torque expression: {torque_expression}")
+    # print(f"Force expression: {force_expression}")
+    # print(f"Torque expression: {torque_expression}")
 
     # Solving
 
@@ -88,6 +88,9 @@ def main(data=dict()):
     equations_to_solve = list(force_expression) + list(torque_expression)
     solutions = sympy.solve(equations_to_solve, unknowns)
     print(f"\nSolutions: {solutions}")
+
+    print(f"Spring A elongation: {lig_springA.get_spring_length()}")
+    print(f"Spring B elongation: {lig_springB.get_spring_length()}")
 
     # Substitute solutions back into forces
     knee_force.force.coordinates = knee_force.force.coordinates.subs(solutions)
@@ -127,6 +130,10 @@ def main(data=dict()):
 
     vis.render()
 
+    SpringVisualiser(lig_springA).render()
+    SpringVisualiser(lig_springB).render()
+    plt.show()
+
 if __name__ == "__main__":
     # theta_sym = Symbol('theta')
     theta_sym = 0.2
@@ -135,10 +142,10 @@ if __name__ == "__main__":
         'femur_length': 0.5, # Distance from hip to knee
         'femur_perp': 0.1, # Perpendicular distance from hip to ligament
         'tibia_perp': 0.1, # Perpendicular (to the tibia) distance from knee to ligament
-        'tibia_para': 0.05, # Distance (down the tibia) from knee to ligament
+        'tibia_para': 0.1, # Distance (down the tibia) from knee to ligament
         'application_length': 0.20, # Distance(down the tibia)
         'theta': theta_sym,
-        'ligament_slack_length': 0.05
+        'ligament_slack_length': 0.07
     }
 
     main(data_symbolic)

@@ -108,7 +108,6 @@ class RigidBody:
 
         # Sum forces and moments from Force objects
         for force_obj in self.forces:
-            print(f"Force: {force_obj}")
             # Ensure force vector is in body_frame
             if force_obj.force.reference_frame != self.body_frame:
                 current_force_in_body_frame = force_obj.force.convert_to_frame(self.body_frame)

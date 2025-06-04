@@ -6,6 +6,9 @@ from rigid_body import Force as SimForce # Alias to avoid clash
 import sympy
 from sympy import Symbol, Expr # For checking if values are symbolic
 import warnings
+import copy
+from springs import AbstractSpring
+
 
 class Visualiser2D:
     def __init__(self, world_frame: ReferenceFrame, projection_axes=(0, 1)):
@@ -293,6 +296,53 @@ class Visualiser2D:
         if filename:
             plt.savefig(filename, dpi=300) # Save with good resolution
             print(f"Visualisation saved to {filename}")
+            plt.close(fig)
         else:
-            plt.show()
-        plt.close(fig)
+            return
+
+class SpringVisualiser:
+    def __init__(self, spring: AbstractSpring):
+        self.spring = copy.deepcopy(spring)
+        # The symbol 'spring_length' will represent the signed ELONGATION e = L_actual - L_rest
+        self.elongation_symbol = Symbol('strain') 
+
+        # The actual current physical length of the spring is L_actual = e + x0
+        # This expression is used to define the coordinate of point_2.
+        # The non-negativity of (self.elongation_symbol + self.spring.x0) will be handled
+        # by clipping the numerical plot range in the render() method.
+        actual_current_length_expr = self.elongation_symbol + self.spring.x0
+
+        point_1  = Point([0, 0, 0], self.spring.point_1.reference_frame)
+        point_2  = Point([actual_current_length_expr, 0, 0], self.spring.point_1.reference_frame)
+        self.spring.set_points(point_1, point_2)
+
+    def render(self, title="Spring Visualisation", bounds=(-0.1, 0.2)):
+        fig, ax = plt.subplots(figsize=(10, 8))
+        # Remove equal aspect ratio since force vs displacement plots typically don't need it
+        ax.set_title(title, fontsize=16)
+        ax.set_xlabel("Spring Strain", fontsize=12)
+        ax.set_ylabel("Spring Force", fontsize=12)
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.set_aspect('equal', adjustable='box')
+
+        ax.set_xlim(bounds[0], bounds[1])
+        ax.set_ylim(-0.25, 1)
+        
+        x_vals = np.linspace(bounds[0], bounds[1], 100)
+        force = self.spring.get_force_on_point1()
+        force_expr = force.force.coordinates[0]
+        energy_func = sympy.lambdify(Symbol('strain'), force_expr)
+        y_vals = energy_func(x_vals)
+        
+        # Add vertical lines at key points
+        # Plot points at key spring transition points
+        ax.plot(self.spring.a, force_expr.subs(Symbol('strain'), self.spring.a), 'ro', label='a', markersize=8)
+        ax.plot(self.spring.b, force_expr.subs(Symbol('strain'), self.spring.b), 'go', label='b', markersize=8)
+        # Add text annotations showing coordinates
+        ax.annotate(f'a={self.spring.a:.2f}', (self.spring.a, 0), 
+                   xytext=(10, 10), textcoords='offset points', color='red')
+        ax.annotate(f'b={self.spring.b:.2f}', (self.spring.b, 0),
+                   xytext=(10, -10), textcoords='offset points', color='green')
+        ax.plot(x_vals, y_vals, label="Spring Force", color="blue")
+                
+        

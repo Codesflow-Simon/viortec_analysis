@@ -15,6 +15,10 @@ class Force:
         self.force = force
         self.application_point = application_point
 
+    def substitute_solutions(self, solutions):
+        self.force.substitute_solutions(solutions)
+        self.application_point.substitute_solutions(solutions)
+
     def get_moment(self):
         return self.force.cross(self.application_point)
 
@@ -129,7 +133,6 @@ class RigidBody:
 
         # Sum torques from Torque objects
         for torque_obj in self.torques:
-            print(f"Torque: {torque_obj}")
             # Ensure torque vector is in body_frame
             if torque_obj.torque.reference_frame != self.body_frame:
                 current_torque_in_body_frame = torque_obj.torque.convert_to_frame(self.body_frame)

@@ -40,9 +40,12 @@ class AbstractSpring:
 
         # Define each coordinate of the normalized vector using Piecewise
         # If norm_val is 0, the component is 0; otherwise, it's component / norm_val.
-        px = sympy.Piecewise((dx / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
-        py = sympy.Piecewise((dy / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
-        pz = sympy.Piecewise((dz / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        # px = sympy.Piecewise((dx / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        # py = sympy.Piecewise((dy / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        # pz = sympy.Piecewise((dz / norm_val, sympy.Ne(norm_val, 0)), (sympy.S.Zero, True))
+        px = dx / norm_val
+        py = dy / norm_val
+        pz = dz / norm_val
         
         # The warning for zero length is harder to emit conditionally in a purely symbolic way.
         # Consider if sympy.functions.elementary.miscellaneous.Min(1, norm_val) or similar could be used
@@ -132,7 +135,7 @@ class LinearSpring(AbstractSpring):
         return 0.5 * self.k * (current_length - self.x0)**2
 
 class TriLinearSpring(AbstractSpring):
-    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr], k_3: [float, Expr], a: [float, Expr], b: [float, Expr], x0: [float, Expr]):
+    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr],  a: [float, Expr], x0: [float, Expr]):
         """
         A spring that has three different spring constants, and a different rest length for each spring.
         Consider the spring strain, x, which is zero at rest length x0.
@@ -146,9 +149,7 @@ class TriLinearSpring(AbstractSpring):
         
         self.k_1 = k_1
         self.k_2 = k_2
-        self.k_3 = k_3
         self.a = a
-        self.b = b
         self.x0 = x0
 
     def get_force_magnitude(self) -> Expr:
@@ -158,8 +159,7 @@ class TriLinearSpring(AbstractSpring):
         return sympy.Piecewise(
             (0, elongation < 0),
             (self.k_1 * elongation, elongation < self.a),
-            (self.k_1 * self.a + self.k_2 * (elongation-self.a), elongation <= self.b),
-            (self.k_1 * self.a + self.k_2 * (self.b-self.a) + self.k_3 * (elongation-self.b), True)
+            (self.k_1 * self.a + self.k_2 * (elongation-self.a), elongation >= self.a),
         )
 
     def get_energy(self) -> Expr:

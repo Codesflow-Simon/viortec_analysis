@@ -112,7 +112,11 @@ class Point:
 
         self.coordinates = coordinates
         self.reference_frame = reference_frame
-    
+
+    def substitute_solutions(self, solutions):
+        """Substitutes solutions into the coordinates of this point."""
+        self.coordinates = self.coordinates.subs(solutions)
+        
     def convert_to_parent(self):
         # Ensure matrix multiplication is handled correctly
         new_coords_matrix = self.reference_frame.rigid_body_mapping @ self.coordinates

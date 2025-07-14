@@ -25,6 +25,7 @@ class Visualiser2D:
         self.points_to_plot = [] 
         self.lines_to_plot = []  
         self.forces_to_plot = [] 
+        self.circles_to_plot = []
 
         self.color_map = {
             "WorldFrame": "black", # Default for points in world frame
@@ -117,6 +118,37 @@ class Visualiser2D:
         end_coords_np = self._convert_point_to_world_numpy(point_obj_end)
         self.lines_to_plot.append((start_coords_np, end_coords_np, color, linestyle))
 
+    def add_circle(self, center_point: Point, radius: float, label: str = None, color: str = 'gray', 
+                   linestyle: str = '-', fill: bool = False, alpha: float = 0.3):
+        """
+        Adds a circle to be plotted.
+        Args:
+            center_point: The Point object representing the center of the circle.
+            radius: The radius of the circle in world frame units.
+            label: Optional text label for the circle.
+            color: Color of the circle outline.
+            linestyle: Linestyle for the circle outline.
+            fill: Whether to fill the circle.
+            alpha: Transparency of the fill (0=transparent, 1=opaque).
+        """
+        center_coords_np = self._convert_point_to_world_numpy(center_point)
+        
+        # Store circle parameters for plotting
+        circle_data = {
+            'center': center_coords_np,
+            'radius': radius,
+            'label': label,
+            'color': color,
+            'linestyle': linestyle,
+            'fill': fill,
+            'alpha': alpha
+        }
+        
+        # Add to a new list for circles
+        if not hasattr(self, 'circles_to_plot'):
+            self.circles_to_plot = []
+        self.circles_to_plot.append(circle_data)
+
     def add_force(self, force_obj: SimForce, associated_body_name: str = "DefaultBody", label=None):
         """
         Adds a force vector to be plotted.
@@ -154,7 +186,7 @@ class Visualiser2D:
         self.forces_to_plot.append((app_point_np_world, force_vec_in_world_np, associated_body_name, force_label, magnitude_str))
 
 
-    def render(self, title="2D Static Visualisation", show_grid=True, equal_aspect=True, filename=None, force_scale_factor=None):
+    def render(self, title="2D Static Visualisation", show_grid=True, equal_aspect=False, show_values=True, filename=None, force_scale_factor=None):
         """Renders the plot."""
         fig, ax = plt.subplots(figsize=(10, 8)) # Slightly larger figure
         ax.set_title(title, fontsize=16)
@@ -179,6 +211,30 @@ class Visualiser2D:
             ax.plot([p_start_2d[0], p_end_2d[0]], [p_start_2d[1], p_end_2d[1]], color=color, linestyle=linestyle, zorder=1, linewidth=1.5)
             update_plot_bounds(p_start_2d)
             update_plot_bounds(p_end_2d)
+            
+        # Plot circles
+        for circle_data in self.circles_to_plot:
+            center_2d = np.array([circle_data['center'][self.projection_axes[0]], circle_data['center'][self.projection_axes[1]]])
+            radius = circle_data['radius']
+            
+            # Create circle patch
+            circle = plt.Circle(center_2d, radius, 
+                               color=circle_data['color'], 
+                               linestyle=circle_data['linestyle'],
+                               fill=circle_data['fill'], 
+                               alpha=circle_data['alpha'],
+                               linewidth=1.5,
+                               zorder=1)
+            ax.add_patch(circle)
+            
+            # Add label if provided
+            if circle_data['label']:
+                ax.text(center_2d[0], center_2d[1] + radius + 0.02, circle_data['label'], 
+                       fontsize=9, ha='center', va='bottom', zorder=3)
+            
+            # Update plot bounds to include circle
+            update_plot_bounds(center_2d + np.array([radius, radius]))
+            update_plot_bounds(center_2d - np.array([radius, radius]))
             
         # Plot points
         plotted_labels_for_legend = {}
@@ -247,9 +303,29 @@ class Visualiser2D:
                      head_length=head_length_val, 
                      fc=color, ec=color, label=plot_label_for_legend, zorder=3, length_includes_head=True)
             
-            text_pos_x = app_2d[0] + scaled_force_x * 1.15 # Position text slightly beyond arrowhead
-            text_pos_y = app_2d[1] + scaled_force_y * 1.15
-            ax.text(text_pos_x, text_pos_y, mag_str, fontsize=8, color=color, zorder=4, ha='center', va='center')
+            # Position the force magnitude label.
+            # Add a small offset from the arrow head, with a minimum distance to avoid overlap on small arrows.
+            scaled_force_norm = np.linalg.norm([scaled_force_x, scaled_force_y])
+            if scaled_force_norm > 1e-9:
+                # The offset from the arrow head is larger for smaller arrows to ensure visibility.
+                # It's a combination of a term proportional to the arrow's length and a minimum offset
+                # derived from the arrow's head length.
+                min_offset = head_length_val * 3.0 # Increase minimum offset for small arrows
+                offset_from_head = max(scaled_force_norm * 0.1, min_offset)
+
+                unit_vector_x = scaled_force_x / scaled_force_norm
+                unit_vector_y = scaled_force_y / scaled_force_norm
+                
+                text_pos_x = app_2d[0] + scaled_force_x + unit_vector_x * offset_from_head
+                text_pos_y = app_2d[1] + scaled_force_y + unit_vector_y * offset_from_head
+            else:
+                # For zero-magnitude forces, place the label slightly offset from the application point.
+                # A small, somewhat arbitrary offset is chosen.
+                text_pos_x = app_2d[0] + 0.02
+                text_pos_y = app_2d[1] + 0.02
+
+            if show_values:
+                ax.text(text_pos_x, text_pos_y, mag_str, fontsize=8, color=color, zorder=4, ha='center', va='center')
 
             update_plot_bounds(app_2d)
             update_plot_bounds(app_2d + np.array([scaled_force_x, scaled_force_y]))
@@ -279,7 +355,6 @@ class Visualiser2D:
                 
             ax.set_xlim(x_min, x_max)
             ax.set_ylim(y_min, y_max)
-            ax.set_aspect('equal')
         else:
             ax.set_xlim(-1, 1)
             ax.set_ylim(-1, 1)
@@ -316,17 +391,16 @@ class SpringVisualiser:
         point_2  = Point([actual_current_length_expr, 0, 0], self.spring.point_1.reference_frame)
         self.spring.set_points(point_1, point_2)
 
-    def render(self, title="Spring Visualisation", bounds=(-0.1, 0.2)):
+    def render(self, title="Spring Visualisation", bounds=(-0.01, 0.02)):
         fig, ax = plt.subplots(figsize=(10, 8))
         # Remove equal aspect ratio since force vs displacement plots typically don't need it
         ax.set_title(title, fontsize=16)
-        ax.set_xlabel("Spring Strain", fontsize=12)
-        ax.set_ylabel("Spring Force", fontsize=12)
+        ax.set_xlabel("Spring Strain (m)", fontsize=12)
+        ax.set_ylabel("Spring Force (N)", fontsize=12)
         ax.grid(True, linestyle='--', alpha=0.7)
-        ax.set_aspect('equal', adjustable='box')
 
         ax.set_xlim(bounds[0], bounds[1])
-        ax.set_ylim(-0.25, 1)
+        ax.set_aspect('auto')  # Remove equal aspect ratio to allow wider plot
         
         x_vals = np.linspace(bounds[0], bounds[1], 100)
         force = self.spring.get_force_on_point1()
@@ -337,12 +411,9 @@ class SpringVisualiser:
         # Add vertical lines at key points
         # Plot points at key spring transition points
         ax.plot(self.spring.a, force_expr.subs(Symbol('strain'), self.spring.a), 'ro', label='a', markersize=8)
-        ax.plot(self.spring.b, force_expr.subs(Symbol('strain'), self.spring.b), 'go', label='b', markersize=8)
         # Add text annotations showing coordinates
         ax.annotate(f'a={self.spring.a:.2f}', (self.spring.a, 0), 
                    xytext=(10, 10), textcoords='offset points', color='red')
-        ax.annotate(f'b={self.spring.b:.2f}', (self.spring.b, 0),
-                   xytext=(10, -10), textcoords='offset points', color='green')
         ax.plot(x_vals, y_vals, label="Spring Force", color="blue")
                 
         

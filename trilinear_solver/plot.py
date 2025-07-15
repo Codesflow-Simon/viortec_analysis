@@ -239,8 +239,6 @@ def generate_plots(x_data, y_data, function: TrilinearFunction, ground_truth_fun
     # plot_3d_loss_surface(x_data, y_data, function, 'x_1', 'k_1')
     
     print("All plots saved as PNG files in ./figures/")
-
-    plt.show()
     
     return {
         'data_and_fit': './figures/data_and_fit.png',
@@ -248,24 +246,25 @@ def generate_plots(x_data, y_data, function: TrilinearFunction, ground_truth_fun
         'loss_3d_surface': './figures/loss_3d_surface_k_1_k_2.png'
     }
 
-def plot_hessian(hessian):
-        # Plot Hessian matrix at solution
+def plot_hessian(hessian, path='./figures/hessian_heatmap.png'):
+    """Basic heatmap visualization of the Hessian matrix."""
     plt.figure(figsize=(10, 8))
-    hessian = loss_hess(result.x, x_data, y_data)
     
-    # Create heatmap of Hessian
-    plt.imshow(hessian, cmap='RdBu', aspect='equal')
-    plt.colorbar(label='Value')
+    # Create heatmap
+    im = plt.imshow(hessian, cmap='RdBu_r', aspect='equal')
+    plt.colorbar(im, label='Hessian Value')
     
     # Add parameter labels
     param_labels = ['k₁', 'k₂', 'k₃', 'x₀', 'x₁', 'x₂']
     plt.xticks(range(6), param_labels)
     plt.yticks(range(6), param_labels)
     
-    plt.title('Hessian Matrix at Solution')
-    plt.tight_layout()
+    # Add text annotations
+    for i in range(6):
+        for j in range(6):
+            plt.text(j, i, f'{hessian[i, j]:.2e}', 
+                    ha='center', va='center', fontsize=8)
     
-    # Save plot
-    if not os.path.exists('./figures'):
-        os.makedirs('./figures')
-    plt.savefig('./figures/hessian.png', dpi=300, bbox_inches='tight')
+    plt.title('Hessian Matrix Heatmap')
+    plt.tight_layout()
+    plt.savefig(path, dpi=300, bbox_inches='tight')

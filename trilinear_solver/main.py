@@ -1,9 +1,12 @@
 import numpy as np
 from function import TrilinearFunction
 from scipy.optimize import minimize
-from plot import generate_plots
+from plot import generate_plots, plot_hessian
 from loss import loss, loss_jac, loss_hess
 from constraints import constraints
+import matplotlib.pyplot as plt
+import os
+
 
 
 
@@ -32,7 +35,7 @@ def solve(x_data, y_data, initial_guess):
     # - COBYLA (handles constraints)
     
     # Using SLSQP since we have constraints and derivatives
-    result = minimize(loss_func, initial_guess, method='Newton-CG', 
+    result = minimize(loss_func, initial_guess, method='SLSQP', 
                      jac=jac_func,
                      hess=hess_func,
                      constraints=constraints_list)
@@ -73,10 +76,10 @@ if __name__ == "__main__":
     x_0 = 0
     x_1 = 1
     x_2 = 2
-    ground_truth = TrilinearFunction(k_1, k_2, k_3, 0.0, 0.5, 0.6)
+    ground_truth = TrilinearFunction(k_1, k_2, k_3, x_0, x_1, x_2)
 
     # Generate noise-free data points
-    x_data = np.linspace(-1, 4, 100)  # Sample points from before x_0 to after x_2
+    x_data = np.linspace(-1, 1.2, 100)  # Sample points from before x_0 to after x_2
     y_data = np.array([float(ground_truth(x)) for x in x_data])
     x_noise = np.random.normal(0, 0.05, len(x_data))
     y_noise = np.random.normal(0, 0.05, len(y_data))
@@ -88,13 +91,17 @@ if __name__ == "__main__":
     result = solve(x_data, y_data, initial_guess)
     
     # Create TrilinearFunction object from optimization result
-    print(result.x)
     fitted_function = TrilinearFunction(*result.x)
+
+    hessian = loss_hess(result.x, x_data, y_data)
+    inverse_hessian = np.linalg.inv(hessian)
+    diag_inverse_hessian = np.diag(inverse_hessian)
+    std = np.sqrt(diag_inverse_hessian)
+    print(f"Standard deviations: k_1: {std[0]:.2f}, k_2: {std[1]:.2f}, k_3: {std[2]:.2f}, x_0: {std[3]:.2f}, x_1: {std[4]:.2f}, x_2: {std[5]:.2f}")
     
-    # Generate plots``
+    # Generate plots
     print("\n=== Generating Plots ===")
     plot_files = generate_plots(x_data, y_data, fitted_function, ground_truth)
-    
-    print(f"\nPlot files saved:")
-    for plot_name, file_path in plot_files.items():
-        print(f"  {plot_name}: {file_path}")
+    plot_hessian(hessian, './figures/hessian_heatmap.png')
+    plot_hessian(inverse_hessian, './figures/inverse_hessian_heatmap.png')
+    plt.show()

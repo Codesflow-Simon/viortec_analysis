@@ -135,7 +135,7 @@ class LinearSpring(AbstractSpring):
         return 0.5 * self.k * (current_length - self.x0)**2
 
 class TriLinearSpring(AbstractSpring):
-    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr],  a: [float, Expr], x0: [float, Expr]):
+    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr], k_3: [float, Expr],  a_1: [float, Expr], a_2: [float, Expr], x0: [float, Expr]):
         """
         A spring that has three different spring constants, and a different rest length for each spring.
         Consider the spring strain, x, which is zero at rest length x0.
@@ -149,7 +149,9 @@ class TriLinearSpring(AbstractSpring):
         
         self.k_1 = k_1
         self.k_2 = k_2
-        self.a = a
+        self.k_3 = k_3
+        self.a_1 = a_1
+        self.a_2 = a_2
         self.x0 = x0
 
     def get_force_magnitude(self) -> Expr:
@@ -158,32 +160,8 @@ class TriLinearSpring(AbstractSpring):
         elongation = current_length - self.x0
         return sympy.Piecewise(
             (0, elongation < 0),
-            (self.k_1 * elongation, elongation < self.a),
-            (self.k_1 * self.a + self.k_2 * (elongation-self.a), elongation >= self.a),
+            (self.k_1 * elongation, elongation < self.a_1),
+            (self.k_1 * self.a_1 + self.k_2 * (elongation-self.a_1), elongation >= self.a_1),
+            (self.k_1 * self.a_1 + self.k_2 * (self.a_2 - self.a_1) + self.k_3 * (elongation-self.a_2), elongation >= self.a_2),
         )
 
-    def get_energy(self) -> Expr:
-        """Returns the symbolic energy stored in the spring."""
-
-        import warnings
-        warnings.warn("TriLinearSpring.get_energy() not tested")
-
-        current_length = self.get_spring_length()
-        elongation = current_length - self.x0
-        
-        if elongation < self.a:
-            return (
-                0.5 * self.k_2 * (self.a - self.x0)**2 +
-                0.5 * self.k_1 * (elongation - self.a)**2 +
-                self.k_2 * (self.a - self.x0) * (elongation - self.a)
-            )
-        elif elongation <= self.b:
-            return 0.5 * self.k_2 * (elongation - self.x0)**2
-        else:
-            return (
-                0.5 * self.k_2 * (self.b - self.x0)**2 +
-                0.5 * self.k_3 * (elongation - self.b)**2 +
-                self.k_2 * (self.b - self.x0) * (elongation - self.b)
-            )
-
-        

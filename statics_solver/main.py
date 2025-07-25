@@ -49,8 +49,8 @@ def main(data=dict(), plot=True):
     application_point = Point([0, -application_length, 0], tibia_frame)
 
     # Springs
-    lig_springA = TriLinearSpring(lig_top_pointA, lig_bottom_pointA, "LigSpring", 200_000, 500_000, 0.01, ligament_slack_length)
-    lig_springB = TriLinearSpring(lig_top_pointB, lig_bottom_pointB, "LigSpring", 200_000, 500_000, 0.01, ligament_slack_length)
+    lig_springA = BlankevoortSpring(lig_top_pointA, lig_bottom_pointA, "LigSpringA", 0.06, 2000, ligament_slack_length)
+    lig_springB = BlankevoortSpring(lig_top_pointB, lig_bottom_pointB, "LigSpringB", 0.06, 2000, ligament_slack_length)
 
     # Constraint forces
     constraint_force, constraint_unknowns = knee_joint.get_constraint_force()
@@ -173,7 +173,6 @@ if __name__ == "__main__":
     # Plot results
     plt.figure()
     plt.plot(np.degrees(theta_range), lengths_balls, label='Two-Ball Joint')
-    plt.plot(np.degrees(theta_range), lengths_pivot, label='Pivot Joint')
     plt.xlabel('Angle (degrees)')
     plt.ylabel('Ligament Length (m)')
     plt.title('Ligament Length vs Joint Angle')
@@ -193,10 +192,7 @@ if __name__ == "__main__":
     }
 
     print("\nResults for Two-Ball Joint at 10 degrees:")
-    main_balls(data_10deg, plot=True)
-
-    print("\nResults for Pivot Joint at 10 degrees:")  
-    main_pivot(data_10deg, plot=True)
+    main(data_10deg, plot=True)
     plt.show()
 
 

@@ -103,7 +103,7 @@ class TrilinearFunction:
 
     def check_param_constraints(self):
         errors = []
-        tol = 1e-10  # Small tolerance for numerical stability
+        tol = 1e-6  # Small tolerance for numerical stability
         if self.k_1 < -tol:
             errors.append(f"k_1 must be non-negative (got {self.k_1})")
         if self.k_2 < -tol:
@@ -128,3 +128,54 @@ class TrilinearFunction:
         if errors:
             warnings.warn("\n".join(errors))
             raise ValueError("\n".join(errors))
+
+def blankevoort_function(x, transition_length, k_1, x0):
+    """
+    A spring that has a transition length, and a different spring constant for each transition length.
+    Consider the spring strain, x, which is zero at rest length x0.
+    When x < x0, the spring force is 0.
+    When x0 < x < x0 + transition_length, the spring force is k_1 * x^2 / (2 * transition_length).
+    When x > x0 + transition_length, the spring force is k_1 * (x - x0 - transition_length/2).
+    """
+    if x < x0:
+        return 0
+    elif x < x0 + transition_length:
+        return k_1 * x**2 / (2 * transition_length)
+    else:
+        return k_1 * (x - x0 - transition_length/2)
+
+def blankevoort_function_dx(x, transition_length, k_1, x0):
+    if x < x0:
+        return 0
+    elif x < x0 + transition_length:
+        return k_1 * x / transition_length
+    else:
+        return k_1
+
+def blankevoort_function_jac(x, transition_length, k_1, x0):
+    """ Jacobian of blankevoort_function
+    
+    """
+    if x < x0:
+        return np.array([0, 0, 0])
+    elif x < x0 + transition_length:
+        d_transition_length = -k_1 * x**2 / (2 * transition_length**2)
+        d_k1 = x**2 / (2 * transition_length)
+        d_x0 = 0
+        return np.array([d_transition_length, d_k1, d_x0])
+    else:
+        d_transition_length = -k_1 / 2
+        d_k1 = x - x0 - transition_length / 2
+        d_x0 = -k_1
+        return np.array([d_transition_length, d_k1, d_x0])
+
+class BlankevoortFunction:
+    def __init__(self, transition_length, k_1, x0):
+        self.transition_length = transition_length
+        self.k_1 = k_1
+        self.x0 = x0
+
+    def __call__(self, x):
+        return blankevoort_function(x, self.transition_length, self.k_1, self.x0)
+        
+        

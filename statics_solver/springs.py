@@ -127,7 +127,8 @@ class LinearSpring(AbstractSpring):
     def get_force_magnitude(self) -> Expr:
         """Returns the symbolic magnitude of the spring force. Positive for tension."""
         current_length = self.get_spring_length()
-        return self.k * (current_length - self.x0)
+        strain = (current_length - self.x0) / self.x0
+        return self.k * strain
 
     def get_energy(self) -> Expr:
         """Returns the symbolic energy stored in the spring."""
@@ -157,11 +158,34 @@ class TriLinearSpring(AbstractSpring):
     def get_force_magnitude(self) -> Expr:
         """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""
         current_length = self.get_spring_length()
-        elongation = current_length - self.x0
+        strain = (current_length - self.x0) / self.x0
         return sympy.Piecewise(
-            (0, elongation < 0),
-            (self.k_1 * elongation, elongation < self.a_1),
-            (self.k_1 * self.a_1 + self.k_2 * (elongation-self.a_1), elongation >= self.a_1),
-            (self.k_1 * self.a_1 + self.k_2 * (self.a_2 - self.a_1) + self.k_3 * (elongation-self.a_2), elongation >= self.a_2),
+            (0, strain < 0),
+            (self.k_1 * strain, strain < self.a_1),
+            (self.k_1 * self.a_1 + self.k_2 * (strain-self.a_1), strain >= self.a_1),
+            (self.k_1 * self.a_1 + self.k_2 * (self.a_2 - self.a_1) + self.k_3 * (strain-self.a_2), strain >= self.a_2),
         )
 
+class BlankevoortSpring(AbstractSpring):
+    def __init__(self, point_1: Point, point_2: Point, name: str, transition_length: [float, Expr],  k_1: [float, Expr], x0: [float, Expr]):
+        """
+        A spring that has a transition length, and a different spring constant for each transition length.
+        Consider the spring strain, x, which is zero at rest length x0.
+        When x < transition_length, the spring constant is k_1.
+        When x > transition_length, the spring constant is k_2.
+        """
+        
+        super().__init__(point_1, point_2, name)
+        self.transition_length = transition_length
+        self.k_1 = k_1
+        self.x0 = x0
+
+    def get_force_magnitude(self) -> Expr:
+        """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""
+        current_length = self.get_spring_length()
+        strain = (current_length - self.x0) / self.x0
+        return sympy.Piecewise( 
+            (0, strain < 0),
+            (self.k_1 * strain**2/(2*self.transition_length), strain < self.transition_length),
+            (self.k_1 * (strain-self.transition_length/2), strain >= self.transition_length),
+        )

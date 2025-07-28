@@ -2,7 +2,6 @@ from function import TrilinearFunction, trilinear_function, trilinear_function_j
 from function import BlankevoortFunction, blankevoort_function, blankevoort_function_jac
 import numpy as np
 reg_coef = 1e-2
-measurement_noise = 100
 
 def loss(params, x_data, y_data, funct, include_reg=True):
     y_pred = np.array([float(funct(x, *params)) for x in x_data])
@@ -13,8 +12,7 @@ def loss(params, x_data, y_data, funct, include_reg=True):
         loss = squared_error + l1
     else:
         loss = squared_error
-    return loss/measurement_noise**2
-
+    return loss
 
 def loss_jac(params, x_data, y_data, funct, funct_jac, include_reg=True):
     n = len(x_data)
@@ -25,7 +23,7 @@ def loss_jac(params, x_data, y_data, funct, funct_jac, include_reg=True):
     G = 2/n * np.sum(residuals[:, np.newaxis] * J_matrix, axis=0)
     if include_reg:
         G += reg_coef * np.sign(params)
-    return G/measurement_noise**2
+    return G
 
 
 def loss_hess(params, x_data, y_data, funct, funct_jac, funct_hess, include_reg=True):
@@ -37,4 +35,4 @@ def loss_hess(params, x_data, y_data, funct, funct_jac, funct_hess, include_reg=
     H_full = 2/n * H_gn
     if include_reg:
         H_full += reg_coef * np.eye(p)
-    return H_full/measurement_noise**2
+    return H_full

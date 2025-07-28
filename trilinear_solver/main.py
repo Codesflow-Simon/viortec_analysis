@@ -22,14 +22,32 @@ def solve(x_data, y_data, initial_guess, funct_tuple, constraints_list):
                      jac=jac_func,
                      constraints=constraints_list)
     
-    print("Optimization result:")
-    print(f"Success: {result.success}")
-    print(f"Optimal parameters: {result.x}")
-    print("Lagrange multipliers:")
-    for i, multiplier in enumerate(result.v):
-        print(f"λ_{i+1}: {multiplier[0]:.5f}")
-    print("")
+    # print("Optimization result:")
+    # print(f"Success: {result.success}")
+    # print(f"Optimal parameters: {result.x}")
+    # print("Lagrange multipliers:")
+    # for i, multiplier in enumerate(result.v):
+    #     print(f"λ_{i+1}: {multiplier[0]:.5f}")
+    # print("")
     return result
+
+def parameter_norm(params, gt_params):
+    """
+    Calculate the percentage deviation of fitted parameters from ground truth.
+    
+    Args:
+        params: Fitted parameter values
+        gt_params: Ground truth parameter values
+        
+    Returns:
+        List of percentage deviations for each parameter
+    """
+    deviations = []
+    for p, gt in zip(params, gt_params):
+        dev = abs(p - gt) / gt
+        deviations.append(dev)
+    return np.array(deviations).mean()
+    
 
 def get_initial_guess(params):
     initial_guess = params
@@ -69,10 +87,7 @@ def setup_model(mode, config):
         
     return param_names, params, funct_tuple, funct_class, ground_truth, constraints_list
 
-def main():
-    # Problem parameters
-    with open('config.yaml', 'r') as file:
-        config = yaml.safe_load(file)
+def main(config):
     mode = config['mode']
         
     param_names, params, funct_tuple, funct_class, ground_truth, constraints_list = setup_model(mode, config)
@@ -87,53 +102,74 @@ def main():
     x_data = x_data + x_noise
     y_data = y_data + y_noise
 
-    # For Blankevoort, input should be normalized strain. Here, just use x_data as strain for now.
-    strain_data = x_data  # If you want to normalize, do it here.
-
     # Solve the optimization problem
     initial_guess = get_initial_guess(params.values())
-    result = solve(strain_data, y_data, initial_guess, funct_tuple, constraints_list)
+    opt_result = solve(x_data, y_data, initial_guess, funct_tuple, constraints_list)
     
     # Create TrilinearFunction object from optimization result
-    fitted_function = funct_class(*result.x)
+    fitted_function = funct_class(*opt_result.x)
     
-    data_cov_matrix, std, samples, acceptance_rate = compute_sampling_covariance(
-        result.x, x_data, y_data, funct_tuple)
+    mean = opt_result.x
 
-    # Print parameters and check if their variance is less than 100
-    for i, (name, param, std_val) in enumerate(zip(param_names, result.x, std)):
-        normalised_deviation = abs(std_val / param)
-        print(f"{name}: {param:.4f} (std: {std_val:.4f}, normalised deviation: {normalised_deviation:.4f}, Observable: {'Yes' if normalised_deviation < 1 else 'No'})")
+    parameter_norms = parameter_norm(opt_result.x, ground_truth.get_params().values())
+    plt.close('all')
 
-    mean = result.x
-    print(f"Data covariance matrix shape: {data_cov_matrix.shape}")
-    print(f"MAP estimate: {mean}")
+    return {
+        'x_data': x_data,
+        'y_data': y_data,
+        'fitted_function': fitted_function,
+        'ground_truth': ground_truth,
+        'parameter_norms': parameter_norms,
+        'funct_tuple': funct_tuple,
+        'param_names': param_names,
+        'success': opt_result.success,
+    }
+
+def bayesian_update(result, config):
+    fitted_function = result['fitted_function']
+    ground_truth = result['ground_truth']
+
+    x_data = result['x_data']
+    y_data = result['y_data']
+    funct_tuple = result['funct_tuple']
+    data_config = config['data']
 
     prior_mean = np.array(config['prior_distribution_lcl']['mean'])
     prior_std = np.array(config['prior_distribution_lcl']['std'])
     prior_cov_matrix = np.diag(prior_std**2)
-    
-    print(f"Prior mean: {prior_mean}")
-    print(f"Prior std: {prior_std}")
 
     # Compute posterior distribution using Bayesian update
     # For Gaussian distributions: posterior = prior * likelihood
     # The MAP estimate gives us the likelihood mean and covariance
-    likelihood_mean = mean
-    likelihood_cov = data_cov_matrix
+    likelihood_mean = list(fitted_function.get_params().values())
     
+    data_cov_matrix, std, samples, acceptance_rate = compute_sampling_covariance(
+        likelihood_mean, x_data, y_data, funct_tuple, sigma_noise=data_config['y_noise'])
+    likelihood_cov = data_cov_matrix
+
     # Bayesian update for Gaussian distributions
     prior_precision = np.linalg.inv(prior_cov_matrix)
     likelihood_precision = np.linalg.inv(likelihood_cov)
     
     posterior_precision = prior_precision + likelihood_precision
     posterior_cov_matrix = np.linalg.inv(posterior_precision)
+
+    # Print shapes for debugging
+    print("\nMatrix/Vector Shapes:")
+    print("--------------------")
+    print(f"prior_mean shape: {prior_mean.shape}")
+    print(f"prior_cov_matrix shape: {prior_cov_matrix.shape}")
+    print(f"prior_precision shape: {prior_precision.shape}")
+    
+    print(f"likelihood_mean shape: {np.array(likelihood_mean).shape}")
+    print(f"likelihood_cov shape: {likelihood_cov.shape}") 
+    print(f"likelihood_precision shape: {likelihood_precision.shape}")
+    
+    print(f"posterior_precision shape: {posterior_precision.shape}")
+    print(f"posterior_cov_matrix shape: {posterior_cov_matrix.shape}")
     
     posterior_mean = posterior_cov_matrix @ (prior_precision @ prior_mean + likelihood_precision @ likelihood_mean)
-    
-    print(f"Posterior mean: {posterior_mean}")
-    print(f"Posterior std: {np.sqrt(np.diag(posterior_cov_matrix))}")
-    
+
     # Store distributions for plotting
     distributions = {
         'prior': {'mean': prior_mean, 'cov': prior_cov_matrix},
@@ -141,26 +177,60 @@ def main():
         'posterior': {'mean': posterior_mean, 'cov': posterior_cov_matrix}
     }
 
+    result.update({
+        'distributions': distributions,
+    })
+    return result
+
+
+def make_plots(result):
+    x_data = result['x_data']
+    y_data = result['y_data']
+    fitted_function = result['fitted_function']
+    ground_truth = result['ground_truth']
+    distributions = result['distributions']
+    param_names = result['param_names']
+
+    posterior_mean = distributions['posterior']['mean']
+    posterior_cov_matrix = distributions['posterior']['cov']
+
+    data_mean = distributions['data']['mean']
+    data_cov_matrix = distributions['data']['cov']
+    data_std = np.sqrt(np.diag(data_cov_matrix))
+
+    prior_mean = distributions['prior']['mean']
+    prior_cov_matrix = distributions['prior']['cov']
+    prior_std = np.sqrt(np.diag(prior_cov_matrix))
 
     # Generate plots
     print("\n=== Generating Plots ===")
+
+    print("\nPosterior Distribution:")
+    print("-----------------------")
+    print(f"Mean:  {posterior_mean}")
+    print(f"Std:   {np.sqrt(np.diag(posterior_cov_matrix))}")
+
+    print("\nLikelihood/Data:")
+    print("---------------")
+    print(f"Covariance Shape: {data_cov_matrix.shape}")
+    print(f"MAP Estimate:     {data_mean}")
+
+    print("\nPrior Distribution:")
+    print("------------------") 
+    print(f"Mean:  {prior_mean}")
+    print(f"Std:   {prior_std}")
+    
+    std = np.sqrt(np.diag(posterior_cov_matrix))
     generate_plots(x_data, y_data, fitted_function, ground_truth, std)
     
-    # Only plot Hessian if we computed it (analytical method)
-    if covariance_method != 'sampling':
-        plot_hessian(hessian)
-        plot_hessian(data_cov_matrix, path='./figures/inverse_hessian_heatmap.png')
-    else:
-        # Plot sampling covariance matrix instead
-        plot_hessian(data_cov_matrix, path='./figures/sampling_covariance_heatmap.png')
-    
-    plot_loss_cross_sections(x_data, y_data, fitted_function)
-    
-    # Generate Bayesian posterior plots
+    plot_hessian(data_cov_matrix, path='./figures/sampling_covariance_heatmap.png')
+        
     from bayesian_plots import plot_bayesian_distributions
     plot_bayesian_distributions(distributions, param_names)
 
-    plt.close('all')
-
 if __name__ == "__main__":
-    main()
+    with open('config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+    result = main(config)
+    result = bayesian_update(result, config)
+    make_plots(result)

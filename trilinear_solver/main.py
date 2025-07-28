@@ -1,63 +1,35 @@
 import numpy as np
-from function import TrilinearFunction, BlankevoortFunction, blankevoort_function, blankevoort_function_dx, blankevoort_function_jac
+import yaml
+from function import TrilinearFunction, trilinear_function, trilinear_function_jac, trilinear_function_hess
+from function import BlankevoortFunction, blankevoort_function, blankevoort_function_jac, blankevoort_function_hess
 from scipy.optimize import minimize
-from plot import generate_plots, plot_hessian, generate_plots_with_uncertainty
+from plot import generate_plots, plot_hessian, plot_loss_cross_sections
 from loss import loss, loss_jac, loss_hess
-from constraints import constraints
-from kkt_covariance import compute_constrained_covariance, compute_lagrangian_hessian, print_covariance_analysis
+import constraints
+from constraints import trilinear_constraints, blankevoort_constraints
+from sampling_covariance import compute_sampling_covariance
+
+
 import matplotlib.pyplot as plt
 import os
 
-def solve(x_data, y_data, initial_guess):
-    loss_func = lambda params: loss(params, x_data, y_data)
-    jac_func = lambda params: loss_jac(params, x_data, y_data)
-    # hess_func = lambda params: loss_hess(params, x_data, y_data)
+def solve(x_data, y_data, initial_guess, funct_tuple, constraints_list):
+    loss_func = lambda params: loss(params, x_data, y_data, funct=funct_tuple[0])
+    jac_func = lambda params: loss_jac(params, x_data, y_data, funct=funct_tuple[0], funct_jac=funct_tuple[1])
+    hess_func = lambda params: loss_hess(params, x_data, y_data, funct=funct_tuple[0], funct_jac=funct_tuple[1], funct_hess=funct_tuple[2])
 
-    constraints_list = constraints
-
-    # Available optimizers in scipy.optimize.minimize:
-    # 'Nelder-Mead' - Simplex algorithm, derivative-free, works well with discontinuities
-    # 'Powell' - Derivative-free, good for discontinuous functions
-    # 'CG' - Conjugate gradient, requires continuity
-    # 'BFGS' - Quasi-Newton method, requires continuity
-    # 'Newton-CG' - Newton's method, requires continuity and twice differentiable
-    # 'L-BFGS-B' - Limited memory BFGS with bounds, requires continuity
-    # 'TNC' - Truncated Newton, requires continuity
-    # 'COBYLA' - Constrained optimization by linear approximation, handles discontinuities
-    # 'SLSQP' - Sequential least squares programming, requires continuity
-    # 'trust-constr' - Trust region, requires continuity
-    
-    # For discontinuous functions, best choices are:
-    # - Nelder-Mead (but doesn't handle constraints well)
-    # - Powell (but doesn't handle constraints well) 
-    # - COBYLA (handles constraints)
-    
-    # Using SLSQP since we have constraints and derivatives
     result = minimize(loss_func, initial_guess, method='trust-constr', 
                      jac=jac_func,
-                    #  hess=hess_func,
                      constraints=constraints_list)
     
     print("Optimization result:")
     print(f"Success: {result.success}")
-    print(f"Optimal parameters: k_1={result.x[0]:.2f}, k_2={result.x[1]:.2f}, k_3={result.x[2]:.2f}, x_0={result.x[3]:.3f}, x_1={result.x[4]:.3f}, x_2={result.x[5]:.3f}")
-    print("\nLagrange multipliers:")
+    print(f"Optimal parameters: {result.x}")
+    print("Lagrange multipliers:")
     for i, multiplier in enumerate(result.v):
         print(f"λ_{i+1}: {multiplier[0]:.5f}")
+    print("")
     return result
-
-def enforce_constraints(initial_guess):
-    # Enforce constraints on initial guess using max operations
-    # k_3 > k_2 > k_1
-    initial_guess[2] = max(initial_guess[2], initial_guess[1] + 0.1)  # k_3 > k_2
-    initial_guess[1] = max(initial_guess[1], initial_guess[0] + 0.1)  # k_2 > k_1
-    
-    # x_2 > x_1 > x_0 >= 0
-    initial_guess[3] = max(0, initial_guess[3])  # x_0 >= 0
-    initial_guess[4] = max(initial_guess[4], initial_guess[3] + 0.1)  # x_1 > x_0
-    initial_guess[5] = max(initial_guess[5], initial_guess[4] + 0.1)  # x_2 > x_1
-    
-    return initial_guess
 
 def get_initial_guess(params):
     initial_guess = params
@@ -67,60 +39,128 @@ def get_initial_guess(params):
     # initial_guess = enforce_constraints(initial_guess)
     return initial_guess
 
-if __name__ == "__main__":
+def setup_model(mode, config):
+    if 'trilinear' in mode:
+        param_names = constraints.trilinear_param_names
+        funct_tuple = (trilinear_function, trilinear_function_jac, trilinear_function_hess)
+        funct_class = TrilinearFunction
+        
+        params = {"k_1": float(config[mode]['modulus_1']) * float(config[mode]['cross_section']), 
+                    "k_2": float(config[mode]['modulus_2']) * float(config[mode]['cross_section']), 
+                    "k_3": float(config[mode]['modulus_3']) * float(config[mode]['cross_section']), 
+                    "x_1": float(config[mode]['x_1']), 
+                    "x_2": float(config[mode]['x_2']) }
+        
+        ground_truth = TrilinearFunction(params['k_1'], 
+                                            params['k_2'], 
+                                            params['k_3'], 
+                                            params['x_1'], params['x_2'])
+        constraints_list = trilinear_constraints
+
+    elif 'blankevoort' in mode:
+        param_names = constraints.blankevoort_param_names
+        params = {"e_t": float(config[mode]['e_t']), 
+                    "k_1": float(config[mode]['linear_elastic']) * float(config[mode]['cross_section'])}
+
+        funct_tuple = (blankevoort_function, blankevoort_function_jac, blankevoort_function_hess)
+        funct_class = BlankevoortFunction
+        ground_truth = BlankevoortFunction(params['e_t'], params['k_1'])
+        constraints_list = blankevoort_constraints
+        
+    return param_names, params, funct_tuple, funct_class, ground_truth, constraints_list
+
+def main():
     # Problem parameters
-    # k_1 = 1
-    # k_2 = 2
-    # k_3 = 3
-    # x_0 = 0
-    # x_1 = 1
-    # x_2 = 2
-    transition_length = 0.06
-    k_1 = 2000
-    x0 = 0
-    # ground_truth = TrilinearFunction(k_1, k_2, k_3, x_0, x_1, x_2)
-    ground_truth = BlankevoortFunction(transition_length, k_1, x0)
+    with open('config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+    mode = config['mode']
+        
+    param_names, params, funct_tuple, funct_class, ground_truth, constraints_list = setup_model(mode, config)
+
+    data_config = config['data']
 
     # Generate data points
-    x_data = np.linspace(-1, 1.5, 100)  # Sample points from before x_0 to after x_2
+    x_data = np.linspace(data_config['x_min'], data_config['x_max'], data_config['n_points'])  # Sample points from before x_0 to after x_2
     y_data = np.array([float(ground_truth(x)) for x in x_data])
-    x_noise = np.random.normal(0, 5e-2, len(x_data))
-    y_noise = np.random.normal(0, 5e-2, len(y_data))
+    x_noise = np.random.normal(0, data_config['x_noise'], len(x_data))
+    y_noise = np.random.normal(0, data_config['y_noise'], len(y_data))
     x_data = x_data + x_noise
     y_data = y_data + y_noise
 
-    # Solve the optimization problem
-    # initial_guess = get_initial_guess([k_1, k_2, k_3, x_0, x_1, x_2])
-    initial_guess = get_initial_guess([transition_length, k_1, x0])
-    result = solve(x_data, y_data, initial_guess)
+    # For Blankevoort, input should be normalized strain. Here, just use x_data as strain for now.
+    strain_data = x_data  # If you want to normalize, do it here.
 
-    # Can we get the lagragian value, lagrangian deriaative or hessian at the solution?
-    # Or perhaps the Lagrange multipliers to allow us to find these?
+    # Solve the optimization problem
+    initial_guess = get_initial_guess(params.values())
+    result = solve(strain_data, y_data, initial_guess, funct_tuple, constraints_list)
     
     # Create TrilinearFunction object from optimization result
-    # fitted_function = TrilinearFunction(*result.x)
-    fitted_function = BlankevoortFunction(*result.x)
-
-    # Compute Lagrangian Hessian and constrained covariance
+    fitted_function = funct_class(*result.x)
     
-    # Compute Lagrangian Hessian
-    hessian = compute_lagrangian_hessian(result.x, x_data, y_data, result.v)
-    inverse_hessian = np.linalg.inv(hessian)
-    diag_inverse_hessian = np.diag(inverse_hessian)
-    std = np.sqrt(diag_inverse_hessian)
+    data_cov_matrix, std, samples, acceptance_rate = compute_sampling_covariance(
+        result.x, x_data, y_data, funct_tuple)
 
     # Print parameters and check if their variance is less than 100
-    param_names = ['k_1', 'k_2', 'k_3', 'x_0', 'x_1', 'x_2']
-    for i, (name, param, variance) in enumerate(zip(param_names, result.x, diag_inverse_hessian)):
-        print(f"{name}: {param:.4f} (variance: {variance:.4f}, Observable: {'Yes' if variance < 1000 else 'No'})")
+    for i, (name, param, std_val) in enumerate(zip(param_names, result.x, std)):
+        normalised_deviation = abs(std_val / param)
+        print(f"{name}: {param:.4f} (std: {std_val:.4f}, normalised deviation: {normalised_deviation:.4f}, Observable: {'Yes' if normalised_deviation < 1 else 'No'})")
 
-    # sigma_theta, std_constrained, K_inv, M = compute_constrained_covariance(result, x_data, y_data)
-    # print(f"Sigma_theta: {sigma_theta}")
-    # print(f"Standard deviations: {std_constrained}")
+    mean = result.x
+    print(f"Data covariance matrix shape: {data_cov_matrix.shape}")
+    print(f"MAP estimate: {mean}")
+
+    prior_mean = np.array(config['prior_distribution_lcl']['mean'])
+    prior_std = np.array(config['prior_distribution_lcl']['std'])
+    prior_cov_matrix = np.diag(prior_std**2)
+    
+    print(f"Prior mean: {prior_mean}")
+    print(f"Prior std: {prior_std}")
+
+    # Compute posterior distribution using Bayesian update
+    # For Gaussian distributions: posterior = prior * likelihood
+    # The MAP estimate gives us the likelihood mean and covariance
+    likelihood_mean = mean
+    likelihood_cov = data_cov_matrix
+    
+    # Bayesian update for Gaussian distributions
+    prior_precision = np.linalg.inv(prior_cov_matrix)
+    likelihood_precision = np.linalg.inv(likelihood_cov)
+    
+    posterior_precision = prior_precision + likelihood_precision
+    posterior_cov_matrix = np.linalg.inv(posterior_precision)
+    
+    posterior_mean = posterior_cov_matrix @ (prior_precision @ prior_mean + likelihood_precision @ likelihood_mean)
+    
+    print(f"Posterior mean: {posterior_mean}")
+    print(f"Posterior std: {np.sqrt(np.diag(posterior_cov_matrix))}")
+    
+    # Store distributions for plotting
+    distributions = {
+        'prior': {'mean': prior_mean, 'cov': prior_cov_matrix},
+        'data': {'mean': likelihood_mean, 'cov': likelihood_cov},
+        'posterior': {'mean': posterior_mean, 'cov': posterior_cov_matrix}
+    }
+
 
     # Generate plots
     print("\n=== Generating Plots ===")
-    generate_plots(x_data, y_data, fitted_function, ground_truth)
-    plot_hessian(hessian)
-    generate_plots_with_uncertainty(x_data, y_data, fitted_function, ground_truth, std)
+    generate_plots(x_data, y_data, fitted_function, ground_truth, std)
+    
+    # Only plot Hessian if we computed it (analytical method)
+    if covariance_method != 'sampling':
+        plot_hessian(hessian)
+        plot_hessian(data_cov_matrix, path='./figures/inverse_hessian_heatmap.png')
+    else:
+        # Plot sampling covariance matrix instead
+        plot_hessian(data_cov_matrix, path='./figures/sampling_covariance_heatmap.png')
+    
+    plot_loss_cross_sections(x_data, y_data, fitted_function)
+    
+    # Generate Bayesian posterior plots
+    from bayesian_plots import plot_bayesian_distributions
+    plot_bayesian_distributions(distributions, param_names)
+
     plt.close('all')
+
+if __name__ == "__main__":
+    main()

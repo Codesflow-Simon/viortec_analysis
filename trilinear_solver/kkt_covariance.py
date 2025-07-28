@@ -1,9 +1,8 @@
 import numpy as np
 from loss import loss_hess
-from constraints import constraints
 from function import trilinear_function
 
-def compute_constraint_jacobian(params):
+def compute_constraint_jacobian(params, constraints):
     """
     Compute the constraint Jacobian matrix A ∈ ℝ^{m×p}
     where m is the number of constraints and p is the number of parameters.
@@ -33,7 +32,7 @@ def compute_constraint_jacobian(params):
     
     return A
 
-def compute_constraint_hessians(params):
+def compute_constraint_hessians(params, constraints ):
     """
     Compute the Hessians of each constraint function.
     Since all constraints are linear, their Hessians are zero matrices.
@@ -52,7 +51,7 @@ def compute_constraint_hessians(params):
     
     return C_list
 
-def compute_lagrangian_hessian(params, x_data, y_data, lagrange_multipliers):
+def compute_lagrangian_hessian(params, x_data, y_data, lagrange_multipliers, constraints, funct_tuple):
     """
     Compute the Lagrangian Hessian H_L = H_data + sum(λ_j * C_j)
     
@@ -66,10 +65,11 @@ def compute_lagrangian_hessian(params, x_data, y_data, lagrange_multipliers):
         H_L: Lagrangian Hessian matrix of shape (p, p)
     """
     # Compute data Hessian
-    H_data = loss_hess(params, x_data, y_data, include_reg=True)
+    funct, funct_jac, funct_hess = funct_tuple
+    H_data = loss_hess(params, x_data, y_data, funct=funct, funct_jac=funct_jac, funct_hess=funct_hess, include_reg=True)
     
     # Compute constraint Hessians
-    C_list = compute_constraint_hessians(params)
+    C_list = compute_constraint_hessians(params, constraints)
     
     # Build Lagrangian Hessian
     H_L = H_data.copy()
@@ -78,7 +78,7 @@ def compute_lagrangian_hessian(params, x_data, y_data, lagrange_multipliers):
     
     return H_L
 
-def compute_kkt_matrix_inverse(params, x_data, y_data, lagrange_multipliers):
+def compute_kkt_matrix_inverse(params, x_data, y_data, lagrange_multipliers, constraints, funct_tuple):
     """
     Compute the inverse of the KKT matrix and extract the parameter covariance.
     
@@ -98,16 +98,17 @@ def compute_kkt_matrix_inverse(params, x_data, y_data, lagrange_multipliers):
     n = len(x_data)
     
     # 1. Compute data Hessian
-    H_data = loss_hess(params, x_data, y_data, include_reg=True)
+    funct, funct_jac, funct_hess = funct_tuple
+    H_data = loss_hess(params, x_data, y_data, funct=funct, funct_jac=funct_jac, funct_hess=funct_hess, include_reg=True)
     
     # 2. Compute constraint Jacobian
-    A = compute_constraint_jacobian(params)
+    A = compute_constraint_jacobian(params, constraints)
     
     # 3. Load Lagrange multipliers
     lambda_vec = lagrange_multipliers
     
     # 4. Compute constraint Hessians (all zero for linear constraints)
-    C_list = compute_constraint_hessians(params)
+    C_list = compute_constraint_hessians(params, constraints)
     
     # 5. Build Lagrangian Hessian H_L
     H_L = H_data.copy()
@@ -140,7 +141,7 @@ def compute_kkt_matrix_inverse(params, x_data, y_data, lagrange_multipliers):
     
     return Sigma_Theta, K_inv, M
 
-def compute_constrained_covariance(result, x_data, y_data):
+def compute_constrained_covariance(result, x_data, y_data, constraints, funct_tuple):
     """
     Main function to compute the constrained covariance matrix.
     
@@ -160,7 +161,7 @@ def compute_constrained_covariance(result, x_data, y_data):
     
     # Compute constrained covariance
     Sigma_Theta, K_inv, M = compute_kkt_matrix_inverse(
-        params, x_data, y_data, lagrange_multipliers
+        params, x_data, y_data, lagrange_multipliers, constraints, funct_tuple
     )
     
     # Extract standard deviations
@@ -168,7 +169,7 @@ def compute_constrained_covariance(result, x_data, y_data):
     
     return Sigma_Theta, std_params, K_inv, M
 
-def print_covariance_analysis(Sigma_Theta, std_params, result):
+def print_covariance_analysis(Sigma_Theta, std_params, result, param_names):
     """
     Print detailed covariance analysis.
     
@@ -177,7 +178,7 @@ def print_covariance_analysis(Sigma_Theta, std_params, result):
         std_params: Parameter standard deviations
         result: Optimization result
     """
-    param_names = ['k_1', 'k_2', 'k_3', 'x_0', 'x_1', 'x_2']
+    param_names = param_names
     
     print("\n=== Constrained Covariance Analysis ===")
     print(f"Parameter estimates: {dict(zip(param_names, result.x))}")

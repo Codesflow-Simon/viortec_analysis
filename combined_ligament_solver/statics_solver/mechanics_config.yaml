@@ -1,0 +1,9 @@
+input_data:
+    femur_length: 0.5
+    femur_perp: 0.1
+    tibia_perp: 0.1
+    tibia_para: 0.05
+    application_length: 0.20
+    theta: theta_sym
+    ligament_slack_length: 0.05
+    app_Fx: app_Fx_sym

@@ -1,0 +1,60 @@
+mode: blankevoort_lcl
+
+data:
+  x_noise: 0
+  y_noise: 20 # MPa
+  n_points: 200
+  x_min: 0.02
+  x_max: 0.10 # We are considering domain to be strain
+
+trilinear_mcl:
+    cross_section: 24.5 # mm^2
+    modulus_1: 163.375 # Half of k_2
+    modulus_2: 326.75  # MPa
+    modulus_3: 500 # Make large
+    x_1: 0.06 # Transition length, at 6% strain
+    x_2: 0.15 # Transition length, at 15% strain
+
+blankevoort_mcl:
+    linear_elastic: 326.75 # MPa
+    cross_section: 24.5 # mm^2
+    e_t: 0.06 # Transition length, at 6% strain
+
+trilinear_lcl:
+    cross_section: 8.76 # mm^2
+    modulus_1: 246.93 # Half of k_2
+    modulus_2: 493.86  # MPa
+    modulus_3: 1500 # Make large
+    x_1: 0.06 # Transition length, at 6% strain
+    x_2: 0.15 # Transition length, at 15% strain
+
+blankevoort_lcl:
+    linear_elastic: 493.86 # MPa
+    cross_section: 8.76 # mm^2
+    e_t: 0.06 # Transition length, at 6% strain
+
+prior_distribution_lcl_tri:
+  # k_1, k_2, k_3, x_1, x_2
+  
+  # k_2 ranges from about 100-600, so mean 350, std 250
+  # k_1 is usually half k_2
+  # k_3 is generally unexplored, so we make it large
+
+  # x_1 is set to 0.06 in most experiments (they report it was half, which is 0.03)
+  # We will give this a relatively tight prior
+
+  # x_2 is about 4-15 mm from my test, we need to convert to strain,
+  # Assume length is about 48.15 mm
+  # This means we have about 0.01 to 0.3 strain
+  # 0.01 doesn't make much sense, since it definately needs to be larger than 0.06
+  # So les put mean at 0.15, std at 0.15, is has large variance but thats ok!
+
+  # We multiply k's by 8.76 (cross section) to get Newtons per strain
+
+  # For now assume all values are independent
+  mean: [1533.0, 3066.0, 10000, 0.06, 0.15]
+  std: [1095.0, 2190.0, 10000, 0.02, 0.15]
+
+prior_distribution_lcl_blankevoort:
+    mean: [0.06, 3066.0]
+    std: [0.02, 2190.0]

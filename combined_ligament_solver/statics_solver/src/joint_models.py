@@ -1,8 +1,8 @@
 import numpy as np
 import sympy
-from mappings import RotationalMapping, TranslationMapping, RigidBodyMapping
-from reference_frame import Point, ReferenceFrame
-from rigid_body import Force
+from .mappings import RotationalMapping, TranslationMapping, RigidBodyMapping
+from .reference_frame import Point, ReferenceFrame
+from .rigid_body import Force
 
 class JointModel(RigidBodyMapping):
     def __init__(self):

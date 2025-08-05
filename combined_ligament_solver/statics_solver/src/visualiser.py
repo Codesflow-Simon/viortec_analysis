@@ -1,13 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
 # It's good practice to explicitly import from your project modules
-from reference_frame import Point, ReferenceFrame 
-from rigid_body import Force as SimForce # Alias to avoid clash
+from .reference_frame import Point, ReferenceFrame 
+from .rigid_body import Force as SimForce # Alias to avoid clash
 import sympy
 from sympy import Symbol, Expr # For checking if values are symbolic
 import warnings
 import copy
-from springs import AbstractSpring
+from .springs import AbstractSpring
 
 
 class Visualiser2D:

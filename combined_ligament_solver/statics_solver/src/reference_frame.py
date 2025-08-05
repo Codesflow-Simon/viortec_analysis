@@ -1,5 +1,5 @@
 import numpy as np
-from mappings import *
+from .mappings import *
 import sympy
 
 class ReferenceFrame:
@@ -47,7 +47,6 @@ class ReferenceFrame:
         return self.parent
 
     def find_common_ancestor(self, other: 'ReferenceFrame'):
-    
         A = self
         B = other
 

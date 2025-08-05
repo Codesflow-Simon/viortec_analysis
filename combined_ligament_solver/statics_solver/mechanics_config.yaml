@@ -4,6 +4,10 @@ input_data:
     tibia_perp: 0.1
     tibia_para: 0.05
     application_length: 0.20
-    theta: theta_sym
-    ligament_slack_length: 0.05
+    theta: 0.1 #radians, theta_sym
+
+    ligament_slack_length: 0.03
+    ligament_transition_point: 0.02
+    ligament_stiffness: 2 # Newtons per meter
+
     app_Fx: app_Fx_sym

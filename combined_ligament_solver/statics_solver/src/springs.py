@@ -1,8 +1,8 @@
 import sympy
 from sympy import Expr # For type hinting
-from reference_frame import Point
+from .reference_frame import Point
 import warnings # For issuing warnings
-from rigid_body import Force
+from .rigid_body import Force
 
 class AbstractSpring:
     def __init__(self, point_1: Point, point_2: Point, name: str):

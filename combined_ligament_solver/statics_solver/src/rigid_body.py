@@ -1,5 +1,5 @@
 import numpy as np
-from reference_frame import Point, ReferenceFrame
+from .reference_frame import Point, ReferenceFrame
 import sympy
 
 class Force:

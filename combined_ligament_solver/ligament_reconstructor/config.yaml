@@ -7,6 +7,7 @@ data:
   x_min: 0.02
   x_max: 0.10 # We are considering domain to be strain
 
+# Use these for ground truth
 trilinear_mcl:
     cross_section: 24.5 # mm^2
     modulus_1: 163.375 # Half of k_2

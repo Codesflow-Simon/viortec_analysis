@@ -1,30 +1,36 @@
 import warnings
 import numpy as np
 
-def trilinear_function(x, k_1, k_2, k_3, x_1, x_2):
-    if x < 0:
+def trilinear_function(x, k_1, k_2, k_3, l_0, a_1, a_2):
+    x_1 = a_1 * l_0
+    x_2 = a_2 * l_0
+
+    if x < l_0:
         return 0
     elif x < x_1:
-        return k_1 * (x)
+        return k_1 * (x - l_0)
     elif x < x_2:
-        return k_1 * (x_1) + k_2 * (x - x_1)
+        return k_1 * x_1 + k_2 * (x - x_1)
     else:
-        return k_1 * (x_1) + k_2 * (x_2 - x_1) + k_3 * (x - x_2)
+        return k_1 * x_1 + k_2 * (x_2 - x_1) + k_3 * (x - x_2)
 
-def trilinear_function_vectorized(x, k_1, k_2, k_3, x_1, x_2):
+def trilinear_function_vectorized(x, k_1, k_2, k_3, l_0, a_1, a_2):
     """
     Vectorized version of trilinear_function that works with numpy arrays.
     """
     x = np.asarray(x)
     result = np.zeros_like(x, dtype=float)
     
-    # Region 1: x < 0
-    mask1 = x < 0
+    x_1 = a_1 * l_0
+    x_2 = a_2 * l_0
+    
+    # Region 1: x < l_0
+    mask1 = x < l_0
     result[mask1] = 0
     
-    # Region 2: 0 <= x < x_1
-    mask2 = (x >= 0) & (x < x_1)
-    result[mask2] = k_1 * x[mask2]
+    # Region 2: l_0 <= x < x_1
+    mask2 = (x >= l_0) & (x < x_1)
+    result[mask2] = k_1 * (x[mask2] - l_0)
     
     # Region 3: x_1 <= x < x_2
     mask3 = (x >= x_1) & (x < x_2)
@@ -36,46 +42,14 @@ def trilinear_function_vectorized(x, k_1, k_2, k_3, x_1, x_2):
     
     return result
 
-def trilinear_function_dx(x, k_1, k_2, k_3, x_1, x_2):
-    if x < 0:
-        return 0
-    elif x < x_1:
-        return k_1
-    elif x < x_2:
-        return k_2
-    else:
-        return k_3
+def trilinear_function_jac(x, k_1, k_2, k_3, l_0, a_1, a_2):
+    x_1 = a_1 * l_0
+    x_2 = a_2 * l_0
 
-def trilinear_function_dx_vectorized(x, k_1, k_2, k_3, x_1, x_2):
-    """
-    Vectorized version of trilinear_function_dx that works with numpy arrays.
-    """
-    x = np.asarray(x)
-    result = np.zeros_like(x, dtype=float)
-    
-    # Region 1: x < 0
-    mask1 = x < 0
-    result[mask1] = 0
-    
-    # Region 2: 0 <= x < x_1
-    mask2 = (x >= 0) & (x < x_1)
-    result[mask2] = k_1
-    
-    # Region 3: x_1 <= x < x_2
-    mask3 = (x >= x_1) & (x < x_2)
-    result[mask3] = k_2
-    
-    # Region 4: x >= x_2
-    mask4 = x >= x_2
-    result[mask4] = k_3
-    
-    return result
-
-def trilinear_function_jac(x, k_1, k_2, k_3, x_1, x_2):
-    if x < 0:
+    if x < l_0:
         return np.array([0,0,0,0,0])
     elif x < x_1:
-        return np.array([x,
+        return np.array([l_0*(),
                         0,
                         0,
                         0,
@@ -265,10 +239,13 @@ def blankevoort_function(epsilon, epsilon_t, k):
     else:
         return k * (epsilon - epsilon_t / 2)
 
-def blankevoort_function_vectorized(epsilon, epsilon_t, k):
+def blankevoort_function_vectorized(epsilon:np.ndarray, epsilon_t:float, k:float):
     """
     Vectorized version of blankevoort_function that works with numpy arrays.
     """
+    print(f"epsilon: {epsilon}")
+    print(f"epsilon_t: {epsilon_t}")
+    print(f"k: {k}")
     epsilon = np.asarray(epsilon)
     result = np.zeros_like(epsilon, dtype=float)
     
@@ -294,10 +271,11 @@ def blankevoort_function_dx(epsilon, epsilon_t, k):
     else:
         return k
 
-def blankevoort_function_dx_vectorized(epsilon, epsilon_t, k):
+def blankevoort_function_dx_vectorized(epsilon:np.ndarray, epsilon_t:float, k:float):
     """
     Vectorized version of blankevoort_function_dx that works with numpy arrays.
     """
+
     epsilon = np.asarray(epsilon)
     result = np.zeros_like(epsilon, dtype=float)
     
@@ -315,7 +293,7 @@ def blankevoort_function_dx_vectorized(epsilon, epsilon_t, k):
     
     return result
 
-def blankevoort_function_jac(epsilon, epsilon_t, k):
+def blankevoort_function_jac(epsilon:np.ndarray, epsilon_t:float, k:float):
     """Jacobian of blankevoort_spring_force with respect to [epsilon_t, k] (no epsilon)."""
     if epsilon < 0:
         return np.array([0, 0])
@@ -398,6 +376,7 @@ class BlankevoortFunction:
 
     def __call__(self, epsilon):
         return blankevoort_function(epsilon, self.epsilon_t, self.k)
+
 
     def __call_vectorized__(self, epsilon):
         """Vectorized version of __call__ that works with numpy arrays."""

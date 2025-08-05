@@ -314,3 +314,49 @@ def plot_hessian(hessian, path='./figures/hessian_heatmap.png'):
     plt.tight_layout()
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
+
+def make_plots(info_dict):
+    result = info_dict
+    x_data = result['x_data']
+    y_data = result['y_data']
+    fitted_function = result['fitted_function']
+    ground_truth = result['ground_truth']
+    distributions = result['distributions']
+    param_names = result['param_names']
+
+    posterior_mean = distributions['posterior']['mean']
+    posterior_cov_matrix = distributions['posterior']['cov']
+
+    data_mean = distributions['data']['mean']
+    data_cov_matrix = distributions['data']['cov']
+    data_std = np.sqrt(np.diag(data_cov_matrix))
+
+    prior_mean = distributions['prior']['mean']
+    prior_cov_matrix = distributions['prior']['cov']
+    prior_std = np.sqrt(np.diag(prior_cov_matrix))
+
+    # Generate plots
+    print("\n=== Generating Plots ===")
+
+    print("\nPosterior Distribution:")
+    print("-----------------------")
+    print(f"Mean:  {posterior_mean}")
+    print(f"Std:   {np.sqrt(np.diag(posterior_cov_matrix))}")
+
+    print("\nLikelihood/Data:")
+    print("---------------")
+    print(f"Covariance Shape: {data_cov_matrix.shape}")
+    print(f"MAP Estimate:     {data_mean}")
+
+    print("\nPrior Distribution:")
+    print("------------------") 
+    print(f"Mean:  {prior_mean}")
+    print(f"Std:   {prior_std}")
+    
+    std = np.sqrt(np.diag(posterior_cov_matrix))
+    generate_plots(x_data, y_data, fitted_function, ground_truth, std)
+    
+    plot_hessian(data_cov_matrix, path='./figures/sampling_covariance_heatmap.png')
+        
+    from bayesian_plots import plot_bayesian_distributions
+    plot_bayesian_distributions(distributions, param_names)

@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     model = KneeModel(config['input_data'], log=False)
 
-    thetas = np.linspace(-np.radians(0.1), np.radians(2), 20)
+    thetas = np.linspace(-np.radians(0), np.radians(2), 20)
 
     length_estimates_a = []
     force_estimates_a = []
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     constraint_manager = reconstructor.constraint_manager
 
     data_cov_matrix, std, samples, acceptance_rate = compute_sampling_covariance(
-        result_obj['params'], length, relative_force, function, n_samples=10000, sigma_noise=1e-1, constraint_manager=constraint_manager)
+        result_obj['params'], length, relative_force, function, n_samples=10000, sigma_noise=1e-3, constraint_manager=constraint_manager)
     print("Parameter standard deviations:", np.sqrt(np.diag(data_cov_matrix)))
     print(f"MCMC acceptance rate: {acceptance_rate:.3f}")
     
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         'alpha': float(gt_config['input_data']['ligament_transition_point']),
         'k': float(gt_config['input_data']['ligament_stiffness']),
         'l_0': float(gt_config['input_data']['ligament_slack_length']),
-        'l_ref': float(reference_point)
+        'f_ref': float(reference_point)
     }
 
     plt.figure()
@@ -114,10 +114,18 @@ if __name__ == "__main__":
     x_data = np.linspace(min(result_obj['params']['l_0']*0.9, np.min(length)), np.max(length), 100)
     plt.plot(x_data, function(x_data), c='b', label='Model')
 
+    # Plot a few random MCMC samples
+    n_samples_to_plot = 50
+    random_indices = np.random.choice(len(samples), n_samples_to_plot)
+    for idx in random_indices:
+        sample_params = samples[idx]
+        function.set_params(sample_params)
+        plt.plot(x_data, function(x_data), c='gray', alpha=0.1)
+
     print(gt_params)
     function.set_params(np.array(list(gt_params.values())))
 
-    plt.plot(x_data, function(x_data), c='g', label='Ground Truth')
+    plt.plot(x_data, function(x_data), c='g', label='Ground Truth', linestyle='--')
     plt.legend()
     plt.xlabel('Ligament Length')
     plt.ylabel('Ligament Relative Force')

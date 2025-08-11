@@ -102,23 +102,19 @@ def estimate_noise_level(x_data, y_data, map_params, func):
     residuals = y_data - y_pred
     return np.std(residuals)
 
-def initial_walkers(map_params, n_walkers, n_params):
+def initial_walkers(map_params, n_walkers, n_params, constraint_manager):
     """
     Initialize walkers around MAP estimate with some scatter.
     """
-    # Parameters are ordered [alpha, k, l_0, l_ref]
+    # Parameters are ordered [alpha, k, l_0, f_ref]
     base_positions = np.array(list(map_params.values()), dtype=float)
     
-    bounds = {
-        'alpha': (0.02, 0.12),      # alpha bounds
-        'k': (10, 100),             # k bounds  
-        'l_0': (30, 50),            # l_0 bounds
-        'l_ref': (0.0, 500.0)       # l_ref bounds
-    }
+    constraints_list = constraint_manager.get_constraints_list()
 
     initial_positions = np.zeros((n_walkers, len(base_positions)))
-    for i, (param_name, param_val) in enumerate(zip(bounds.keys(), base_positions)):
-        lower, upper = bounds[param_name]
+
+    for i, constraint in enumerate(constraints_list):
+        lower, upper = constraint
         initial_positions[:, i] = np.random.uniform(lower, upper, n_walkers)
     
     # Ensure all parameters stay positive (constraint satisfaction)
@@ -127,7 +123,7 @@ def initial_walkers(map_params, n_walkers, n_params):
     return initial_positions
 
 def compute_mcmc_covariance(map_params, x_data, y_data, func,
-                           n_walkers, n_steps, n_burnin, sigma_noise, ensemble_sigma=None, random_state=None, constraint_manager=None):
+                           n_walkers, n_steps, n_burnin, sigma_noise, random_state=None, constraint_manager=None):
     """
     Compute covariance matrix using MCMC sampling with emcee.
     
@@ -140,7 +136,6 @@ def compute_mcmc_covariance(map_params, x_data, y_data, func,
         n_steps: Number of MCMC steps
         n_burnin: Number of burn-in steps to discard
         random_state: Random state for reproducibility
-        ensemble_sigma: Standard deviation for walker initialization
         sigma_noise: Noise standard deviation
         constraint_manager: Optional ConstraintManager for physical constraints
         
@@ -163,7 +158,7 @@ def compute_mcmc_covariance(map_params, x_data, y_data, func,
     )
     
     # Initialize walkers around MAP estimate with some scatter
-    initial_positions = initial_walkers(map_params, n_walkers, n_params)
+    initial_positions = initial_walkers(map_params, n_walkers, n_params, constraint_manager)
     
     if random_state is not None:
         np.random.seed(random_state)
@@ -218,7 +213,7 @@ def check_constraint_violations(samples, constraint_manager):
     return violation_rate, violation_details
 
 def compute_sampling_covariance(map_params, x_data, y_data, func, 
-                               n_samples=1000, method='mcmc', sigma_noise=1, constraint_manager=None):
+                               n_samples=1000, method='mcmc', sigma_noise=1e-3, constraint_manager=None):
     """
     Main function to compute covariance matrix using MCMC sampling.
     
@@ -242,15 +237,14 @@ def compute_sampling_covariance(map_params, x_data, y_data, func,
     
     if method == 'mcmc':
         # Calculate number of walkers and steps based on total samples
-        n_walkers = 64
-        n_steps = 100
-        n_burnin = 20
-        ensemble_sigma = 1
+        n_walkers = 16
+        n_steps = 200
+        n_burnin = 100
         
         cov_matrix, std_params, mcmc_samples, acceptance_rate = compute_mcmc_covariance(
             map_params, x_data, y_data, func,
             n_walkers=n_walkers, n_steps=n_steps, n_burnin=n_burnin,
-            ensemble_sigma=ensemble_sigma, sigma_noise=sigma_noise,
+            sigma_noise=sigma_noise,
             constraint_manager=constraint_manager
         )
         return cov_matrix, std_params, mcmc_samples, acceptance_rate

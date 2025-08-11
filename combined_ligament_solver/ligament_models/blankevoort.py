@@ -5,17 +5,17 @@ from sympy import symbols, Piecewise
 class BlankevoortFunction(LigamentFunction):
     def __init__(self, params: np.ndarray):
         """
-        Initialize with parameters [alpha, k, l_0, l_ref]
+        Initialize with parameters [alpha, k, l_0, f_ref]
         """
         if len(params) != 4:
-            raise ValueError(f"BlankevoortFunction requires 4 parameters: [alpha, k, l_0, l_ref], got {params}")
+            raise ValueError(f"BlankevoortFunction requires 4 parameters: [alpha, k, l_0, f_ref], got {params}")
         super().__init__(params)
 
     def sympy_implementation(self):
         """
         Returns symbolic expression for Blankevoort function using sympy.
         """
-        x, alpha, k, l_0, l_ref = symbols('x alpha k l_0 l_ref')
+        x, alpha, k, l_0, f_ref = symbols('x alpha k l_0 f_ref')
 
         transition_length = l_0 * (1 + alpha)
         transition_elongation = transition_length - l_0
@@ -27,11 +27,11 @@ class BlankevoortFunction(LigamentFunction):
         )
 
         relative_force = force_expr(x)
-        total_force = relative_force - l_ref
+        total_force = relative_force - f_ref
         return total_force
 
     def get_param_symbols(self):
-        return symbols('alpha k l_0 l_ref')
+        return symbols('alpha k l_0 f_ref')
 
 
 ## Keep this around for legacy

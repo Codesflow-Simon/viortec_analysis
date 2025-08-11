@@ -48,4 +48,4 @@ def get_params_from_config(config, mode):
         return {"alpha": float(config[mode]['alpha']), 
                 "k": float(config[mode]['linear_elastic']),
                 "l_0": float(config[mode]['l_0']),
-                "l_ref": float(config[mode]['l_ref'])}
+                "f_ref": float(config[mode]['f_ref'])}

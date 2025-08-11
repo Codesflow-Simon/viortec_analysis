@@ -12,7 +12,7 @@ class TestBlankevoortFunction(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        # Parameters: [alpha, k, l_0, l_ref]
+        # Parameters: [alpha, k, l_0, f_ref]
         self.params = np.array([1.07, 60, 44, 0.05])
         self.function = BlankevoortFunction(self.params)
         self.x_test = np.array([20, 40, 60, 80, 100])
@@ -30,7 +30,7 @@ class TestBlankevoortFunction(unittest.TestCase):
     def test_get_param_symbols(self):
         """Test get_param_symbols method."""
         symbols = self.function.get_param_symbols()
-        expected_symbols = ['alpha', 'k', 'l_0', 'l_ref']
+        expected_symbols = ['alpha', 'k', 'l_0', 'f_ref']
         for i, symbol in enumerate(symbols):
             self.assertEqual(str(symbol), expected_symbols[i])
     

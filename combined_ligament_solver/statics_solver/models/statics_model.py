@@ -28,7 +28,7 @@ class KneeModel(AbstractModel):
         tibia_perp = self.data['tibia_perp']
         tibia_para = self.data['tibia_para']
         application_length = self.data['application_length']
-        theta_val = -self.data['theta']
+        theta_val = self.data['theta']
         app_Fx = self.data['app_Fx']
 
         ligament_slack_length = self.data['ligament_slack_length']
@@ -70,9 +70,12 @@ class KneeModel(AbstractModel):
              ligament_transition_point, ligament_stiffness, ligament_slack_length)
         self.lig_springB = BlankevoortSpring(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB",
              ligament_transition_point, ligament_stiffness, ligament_slack_length)
-
-        print(f"LigSpringA: {self.lig_springA.get_force_on_point1()}")
-        print(f"LigSpringB: {self.lig_springB.get_force_on_point1()}")
+        # self.lig_springA = TriLinearSpring(self.lig_top_pointA, self.lig_bottom_pointA, "LigSpringA",
+        #     k_1 = ligament_stiffness/2, k_2=ligament_stiffness, k_3=ligament_stiffness*5,
+        #     x_0 = ligament_slack_length, a_1 = ligament_transition_point, a_2 = ligament_slack_length*2)
+        # self.lig_springB = TriLinearSpring(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB",
+        #     k_1 = ligament_stiffness/2, k_2=ligament_stiffness, k_3=ligament_stiffness*5,
+        #     x_0 = ligament_slack_length, a_1 = ligament_transition_point, a_2 = ligament_slack_length*2)
 
         # Constraint forces
         self.constraint_force, self.constraint_unknowns = self.knee_joint.get_constraint_force()
@@ -134,6 +137,15 @@ class KneeModel(AbstractModel):
         # Substitute solutions back into forces
         self.constraint_force.substitute_solutions(solutions)
         self.applied_force.substitute_solutions(solutions)
+
+        solutions['lig_springA_length'] = self.lig_springA.get_spring_length()
+        solutions['lig_springB_length'] = self.lig_springB.get_spring_length()
+
+        solutions['lig_springA_force'] = self.lig_springA.get_force_on_point1()
+        solutions['lig_springB_force'] = self.lig_springB.get_force_on_point1()
+
+        solutions['applied_force'] = self.applied_force.get_force()
+        solutions['constraint_force'] = self.constraint_force.get_force()
         return solutions
     
     def plot_model(self):

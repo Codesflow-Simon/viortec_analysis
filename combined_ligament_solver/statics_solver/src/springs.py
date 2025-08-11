@@ -61,7 +61,7 @@ class AbstractSpring:
         
         # Convert to the target frame as in the original logic
         result_point = result_point.convert_to_frame(self.point_2_orignal_frame)
-        return result_point
+        return result_point.normalize()
 
     def get_force_direction_on_p1(self) -> Point:
         """
@@ -70,7 +70,7 @@ class AbstractSpring:
         """
         direction_vector = -self.get_force_direction_on_p2()
         direction_vector = direction_vector.convert_to_frame(self.point_1_orignal_frame)
-        return direction_vector
+        return direction_vector.normalize()
 
     def get_force_on_point2(self) -> Point:
         """Returns the symbolic force vector exerted BY the spring ON point_2."""
@@ -136,7 +136,7 @@ class LinearSpring(AbstractSpring):
         return 0.5 * self.k * (current_length - self.x0)**2
 
 class TriLinearSpring(AbstractSpring):
-    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr], k_3: [float, Expr],  a_1: [float, Expr], a_2: [float, Expr], x0: [float, Expr]):
+    def __init__(self, point_1: Point, point_2: Point, name: str, k_1: [float, Expr], k_2: [float, Expr], k_3: [float, Expr],  x_0: [float, Expr], a_1: [float, Expr], a_2: [float, Expr]):
         """
         A spring that has three different spring constants, and a different rest length for each spring.
         Consider the spring strain, x, which is zero at rest length x0.
@@ -151,17 +151,17 @@ class TriLinearSpring(AbstractSpring):
         self.k_1 = k_1
         self.k_2 = k_2
         self.k_3 = k_3
+        self.x_0 = x_0
         self.a_1 = a_1
         self.a_2 = a_2
-        self.x0 = x0
 
     def get_force_magnitude(self) -> Expr:
         """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""
         current_length = self.get_spring_length()
-        strain = (current_length - self.x0) / self.x0
+        elongation = current_length - self.x_0
         return sympy.Piecewise(
-            (0, strain < 0),
-            (self.k_1 * strain, strain < self.a_1),
+            (0, elongation < 0),
+            (self.k_1 * elongation, elongation < self.a_1),
             (self.k_1 * self.a_1 + self.k_2 * (strain-self.a_1), strain >= self.a_1),
             (self.k_1 * self.a_1 + self.k_2 * (self.a_2 - self.a_1) + self.k_3 * (strain-self.a_2), strain >= self.a_2),
         )
@@ -172,8 +172,9 @@ class BlankevoortSpring(AbstractSpring):
         A spring that has a transition length, and a different spring constant for each transition length.
         Consider the spring strain, x, which is zero at rest length x0.
         When x < transition_length, the spring constant is k_1.
-        When x > transition_length, the spring constant is k_2.
         """
+        from ligament_models import BlankevoortFunction
+        self.function = BlankevoortFunction([transition_length, k_1, x0, 0])
         
         super().__init__(point_1, point_2, name)
         self.transition_length = transition_length
@@ -183,9 +184,5 @@ class BlankevoortSpring(AbstractSpring):
     def get_force_magnitude(self) -> Expr:
         """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""
         current_length = self.get_spring_length()
-        strain = (current_length - self.x0) / self.x0
-        return sympy.Piecewise( 
-            (0, strain < 0),
-            (self.k_1 * strain**2/(2*self.transition_length), strain < self.transition_length),
-            (self.k_1 * (strain-self.transition_length/2), strain >= self.transition_length),
-        )
+        result = self.function(current_length)
+        return result

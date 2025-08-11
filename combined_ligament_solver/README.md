@@ -1,8 +1,12 @@
 # Ligament solver
 
 ## Current capabilities
+
 ### Kinematics and statics solving
 The folder `statics_solver` contains code for solving kinematic and staic equations, a *knee* is made up of a set of refernce frames, connected by joints or springs. I will cover the details of this library below. This library is all built in SymPy for symbolic computation.
+
+#### Model
+There is one model right now defined in `statics_model.py`, this is based on a two-ball joint with ligaments.
 
 #### Reference frame
 The class `ReferenceFrame` defined in `reference_frame.py`. A reference frame conisists of a (possibly empty) list of child frames, and an optional map to its parent called `rigid_body_mapping`, which is a `RigidBodyMap`. Map definitions are made in `mappings.py`. A key method for reference frames is `find_common_ancestor` which will search the family tree for the youngest common ancesetor of two maps (that may be one of the provided maps), this is useful for converting reference frames.
@@ -24,3 +28,6 @@ A joint is parameterised by theta, though the method `set_theta`. Implimentation
 
 #### Other details
 `mappings.py` defines symbolic expressions of many key functions we require, and `visualiser.py` allows for plots to be made. An example model can be seen in `statics_model.py`.
+
+### Ligament reconstruction
+If force-elongation data is gathered, we may with to model it. We model in a Bayesian approach.

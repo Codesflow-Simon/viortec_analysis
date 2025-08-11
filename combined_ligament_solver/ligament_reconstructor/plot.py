@@ -1,9 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from function import TrilinearFunction
-from loss import loss
-import os
+from ligament_models import TrilinearFunction
+from .modelling.loss import loss
 
 def plot_loss_cross_sections(x_data, y_data, function: TrilinearFunction, n_points=50):
     """
@@ -120,7 +119,7 @@ def plot_data_and_fit(x_data, y_data, function: TrilinearFunction, ground_truth_
     params = function.get_params()
     
     # Generate smooth curve for plotting
-    x_smooth = np.linspace(-0.05, 0.2, 1000)
+    x_smooth = np.linspace(0.18, 0.30, 1000)
     y_smooth = np.array([float(function(x)) for x in x_smooth])
     
     plt.figure(figsize=(12, 8))

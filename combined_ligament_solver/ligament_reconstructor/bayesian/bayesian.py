@@ -1,19 +1,10 @@
 import numpy as np
 import yaml
-from function import *
 from scipy.optimize import minimize
-from plot import make_plots
-from loss import *
-import constraints
-from constraints import trilinear_constraints, blankevoort_constraints
-from sampling_covariance import compute_sampling_covariance
-from utils import *
+from .sampling_covariance import compute_sampling_covariance
+from ..utils import *
 
 
-import matplotlib.pyplot as plt
-import os
-
-from ligament_reconstructor import LigamentReconstructor
 
 def bayesian_update(result, config):
     fitted_function = result['fitted_function']
@@ -24,8 +15,8 @@ def bayesian_update(result, config):
     funct_tuple = result['funct_tuple']
     data_config = config['data']
 
-    prior_mean = np.array(config['prior_distribution_lcl_blankevoort']['mean'])
-    prior_std = np.array(config['prior_distribution_lcl_blankevoort']['std'])
+    prior_mean = np.array(config['prior_distribution_lcl_tri']['mean'])
+    prior_std = np.array(config['prior_distribution_lcl_tri']['std'])
     prior_cov_matrix = np.diag(prior_std**2)
 
     # Compute posterior distribution using Bayesian update

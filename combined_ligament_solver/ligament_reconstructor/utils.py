@@ -29,7 +29,7 @@ def parameter_norm(params, gt_params, funct_vectorized):
 def create_synthetic_data(gt_func_vec, params, x_noise=0, y_noise=0, x_min=0, x_max=0.2, n_points=100):
     # Generate data points
     x_data = np.linspace(x_min, x_max, n_points)  # Sample points from before x_0 to after x_2
-    y_data = gt_func_vec(x_data, *list(params))
+    y_data = gt_func_vec(x_data, params)
     x_noise = np.random.normal(0, x_noise, len(x_data))
     y_noise = np.random.normal(0, y_noise, len(y_data))
     x_data = x_data + x_noise
@@ -38,11 +38,14 @@ def create_synthetic_data(gt_func_vec, params, x_noise=0, y_noise=0, x_min=0, x_
 
 def get_params_from_config(config, mode):
     if 'trilinear' in mode:
-        return {"k_1": float(config[mode]['modulus_1']) * float(config[mode]['cross_section']), 
-                "k_2": float(config[mode]['modulus_2']) * float(config[mode]['cross_section']), 
-                "k_3": float(config[mode]['modulus_3']) * float(config[mode]['cross_section']), 
-                "x_1": float(config[mode]['x_1']), 
-                "x_2": float(config[mode]['x_2'])}
+        return {"k_1": float(config[mode]['stiffness_1']), 
+                "k_2": float(config[mode]['stiffness_2']), 
+                "k_3": float(config[mode]['stiffness_3']), 
+                "l_0": float(config[mode]['length_0']), 
+                "a_1": float(config[mode]['a_1']), 
+                "a_2": float(config[mode]['a_2'])}
     elif 'blankevoort' in mode:
-        return {"e_t": float(config[mode]['e_t']), 
-                "k_1": float(config[mode]['linear_elastic']) * float(config[mode]['cross_section'])}
+        return {"alpha": float(config[mode]['alpha']), 
+                "k": float(config[mode]['linear_elastic']),
+                "l_0": float(config[mode]['l_0']),
+                "l_ref": float(config[mode]['l_ref'])}

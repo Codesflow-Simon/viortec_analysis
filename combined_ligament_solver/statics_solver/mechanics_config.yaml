@@ -1,13 +1,14 @@
 input_data:
-    femur_length: 0.5
-    femur_perp: 0.1
-    tibia_perp: 0.1
-    tibia_para: 0.05
-    application_length: 0.20
+    femur_length: 500 # All lengths in mm
+    femur_perp: 100
+    tibia_perp: 100
+    tibia_para: 50
+    application_length: 200
     theta: 0.1 #radians, theta_sym
 
-    ligament_slack_length: 0.03
-    ligament_transition_point: 0.02
-    ligament_stiffness: 2 # Newtons per meter
+    # Defines the ground truth parameters in the mechanical model
+    ligament_slack_length: 40 # 30 mm
+    ligament_transition_point: 0.06 # measured in strain %, always greater than 1
+    ligament_stiffness: 60 # Newtons per mm
 
     app_Fx: app_Fx_sym

@@ -15,6 +15,9 @@ class Force:
         self.force = force
         self.application_point = application_point
 
+    def get_force(self):
+        return self.force
+
     def substitute_solutions(self, solutions):
         self.force.substitute_solutions(solutions)
         self.application_point.substitute_solutions(solutions)

@@ -1,0 +1,21 @@
+data:
+  x_noise: 0
+  y_noise: 20
+  n_points: 200
+  x_min: 0.20 # milimeter domain
+  x_max: 0.30 
+
+blankevoort_mcl:
+    k: 60 # N per mm
+    alpha: 0.06 # Transition length, at 6% strain
+    l_0: 45 # mm
+    f_ref: 0 # strain
+
+mechanics:
+    femur_length: 500 # All lengths in mm
+    femur_perp: 100
+    tibia_perp: 100
+    tibia_para: 50
+    application_length: 200
+    theta: 0.1 #radians, theta_sym
+    app_Fx: app_Fx_sym

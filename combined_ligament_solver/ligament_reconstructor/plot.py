@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from ligament_models import TrilinearFunction
-from .modelling.loss import loss
+from .loss import loss
 
 def plot_loss_cross_sections(x_data, y_data, function: TrilinearFunction, n_points=50):
     """
@@ -189,9 +189,9 @@ def plot_data_and_fit_blankevoort(x_data, y_data, function, ground_truth_functio
     # Use get_params if available, else fallback to attributes
     if hasattr(function, 'get_params'):
         params = function.get_params()
-        transition_length, k_1 = params['e_t'], params['k']
+        alpha, k_1 = params['e_t'], params['k']
     else:
-        transition_length, k_1 = function.transition_length, function.k_1
+        alpha, k_1 = function.alpha, function.k_1
     x_smooth = np.linspace(-0.05, 0.1, 1000)
     y_smooth = np.array([float(function(x)) for x in x_smooth])
     plt.figure(figsize=(12, 8))
@@ -200,17 +200,17 @@ def plot_data_and_fit_blankevoort(x_data, y_data, function, ground_truth_functio
     if ground_truth_function is not None:
         y_ground_truth = np.array([float(ground_truth_function(x)) for x in x_smooth])
         plt.plot(x_smooth, y_ground_truth, 'g--', linewidth=2, label='Ground truth')
-    # Mark transition_length
-    plt.axvline(x=transition_length, color='orange', linestyle=':', alpha=0.7, label=f'L = {transition_length:.3f}')
+    # Mark alpha
+    plt.axvline(x=alpha, color='orange', linestyle=':', alpha=0.7, label=f'L = {alpha:.3f}')
     
     # Mark ground truth transition point if provided
     if ground_truth_function is not None:
         if hasattr(ground_truth_function, 'get_params'):
             gt_params = ground_truth_function.get_params()
-            gt_transition_length = gt_params['e_t']
+            gt_alpha = gt_params['e_t']
         else:
-            gt_transition_length = ground_truth_function.transition_length
-        plt.axvline(x=gt_transition_length, color='orange', linestyle='--', alpha=0.5, linewidth=1.5, label=f'Ground truth L = {gt_transition_length:.3f}')
+            gt_alpha = ground_truth_function.alpha
+        plt.axvline(x=gt_alpha, color='orange', linestyle='--', alpha=0.5, linewidth=1.5, label=f'Ground truth L = {gt_alpha:.3f}')
     
     plt.xlabel('strain')
     plt.ylabel('force')
@@ -245,13 +245,16 @@ def plot_hessian(hessian, path='./figures/hessian_heatmap.png'):
     plt.colorbar(im, label='Hessian Value')
     
     # Add parameter labels
-    param_labels = ['k₁', 'k₂', 'k₃', 'x₀', 'x₁', 'x₂']
-    plt.xticks(range(6), param_labels)
-    plt.yticks(range(6), param_labels)
+    if hessian.shape == (4, 4):
+        param_labels = ['k', 'alpha', 'l_0', 'f_ref']
+    else:
+        param_labels = ['k₁', 'k₂', 'k₃', 'x₀', 'x₁', 'x₂']
+    plt.xticks(range(hessian.shape[0]), param_labels)
+    plt.yticks(range(hessian.shape[1]), param_labels)
     
     # Add text annotations
-    for i in range(6):
-        for j in range(6):
+    for i in range(hessian.shape[0]):
+        for j in range(hessian.shape[1]):
             plt.text(j, i, f'{hessian[i, j]:.2f}', 
                     ha='center', va='center', fontsize=8)
     
@@ -270,13 +273,16 @@ def plot_hessian(hessian, path='./figures/hessian_heatmap.png'):
     plt.colorbar(im, label='Inverse Hessian Value')
     
     # Add parameter labels
-    param_labels = ['k₁', 'k₂', 'k₃', 'x₀', 'x₁', 'x₂']
-    plt.xticks(range(6), param_labels)
-    plt.yticks(range(6), param_labels)
+    if inv_hessian.shape == (4, 4):
+        param_labels = ['k', 'alpha', 'l_0', 'f_ref']
+    else:
+        param_labels = ['k₁', 'k₂', 'k₃', 'x₀', 'x₁', 'x₂']
+    plt.xticks(range(inv_hessian.shape[0]), param_labels)
+    plt.yticks(range(inv_hessian.shape[1]), param_labels)
     
     # Add text annotations
-    for i in range(6):
-        for j in range(6):
+    for i in range(inv_hessian.shape[0]):
+        for j in range(inv_hessian.shape[1]):
             plt.text(j, i, f'{inv_hessian[i, j]:.2f}',
                     ha='center', va='center', fontsize=8)
     
@@ -294,7 +300,9 @@ def plot_hessian(hessian, path='./figures/hessian_heatmap.png'):
 
     # Use correct parameter labels
     if hessian.shape == (2, 2):
-        param_labels = ['transition_length', 'k_1']
+        param_labels = ['k', 'alpha']
+    elif hessian.shape == (4, 4):
+        param_labels = ['k', 'alpha', 'l_0', 'f_ref']
     elif hessian.shape == (6, 6):
         param_labels = ['k₁', 'k₂', 'k₃', 'x₀', 'x₁', 'x₂']
     else:

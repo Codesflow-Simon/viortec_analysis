@@ -110,7 +110,6 @@ class TwoBallJoint(JointModel):
         radius = self.radius
         distance = self._get_distance_for_theta(theta)
 
-
         ball_angle = np.array([-radius*sympy.sin(theta), -radius*sympy.cos(theta), 0])
         ball_center = np.array([distance, -radius, 0])
         return Point(ball_angle + ball_center, self.world_frame)

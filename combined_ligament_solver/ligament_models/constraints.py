@@ -48,8 +48,8 @@ class BetweenConstraint:
             }
         elif mode == 'blankevoort':
             return {
-                'alpha': 0,
-                'k': 1,
+                'k': 0,
+                'alpha': 1,
                 'l_0': 2,
                 'f_ref': 3
             }
@@ -76,17 +76,18 @@ class ConstraintManager:
         if self.mode == 'trilinear':
             return ['k_1', 'k_2', 'k_3', 'l_0', 'a_1', 'a_2']
         elif self.mode == 'blankevoort':
-            return ['alpha', 'k', 'l_0', 'f_ref']
+            return ['k', 'alpha', 'l_0', 'f_ref']
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
     def _get_constraints_obj(self) -> List[Dict[str, Any]]:
         if self.mode == 'blankevoort':
             return [
-                BetweenConstraint(0.02, 'alpha', 0.12),
                 BetweenConstraint(10, 'k', 100),
-                BetweenConstraint(40, 'l_0', 50),
-                BetweenConstraint(0.0, 'f_ref', 300.0),
+                BetweenConstraint(0.02, 'alpha', 0.12),
+                BetweenConstraint(40, 'l_0', 60),
+                # BetweenConstraint(0.0, 'f_ref', 300),
+                BetweenConstraint(0, 'f_ref', 5),
             ]
         
         return []

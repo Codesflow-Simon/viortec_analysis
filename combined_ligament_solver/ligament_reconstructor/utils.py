@@ -45,7 +45,7 @@ def get_params_from_config(config, mode):
                 "a_1": float(config[mode]['a_1']), 
                 "a_2": float(config[mode]['a_2'])}
     elif 'blankevoort' in mode:
-        return {"alpha": float(config[mode]['alpha']), 
-                "k": float(config[mode]['linear_elastic']),
+        return {"k": float(config[mode]['k']),
+                "alpha": float(config[mode]['alpha']), 
                 "l_0": float(config[mode]['l_0']),
                 "f_ref": float(config[mode]['f_ref'])}

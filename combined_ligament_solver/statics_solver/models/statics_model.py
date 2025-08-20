@@ -13,9 +13,12 @@ from ..src.joint_models import TwoBallJoint, PivotJoint
 from .base import AbstractModel
 
 class KneeModel(AbstractModel):
-    def __init__(self, data, log=True):
+    def __init__(self, data, lig_function_left: BlankevoortFunction, lig_function_right: BlankevoortFunction, log=True):
         self.log = log
         self.data = data
+        self.lig_function_left = lig_function_left
+        self.lig_function_right = lig_function_right
+        self.build_model()
 
     def update_data(self, data):
         self.data = data
@@ -30,10 +33,6 @@ class KneeModel(AbstractModel):
         application_length = self.data['application_length']
         theta_val = self.data['theta']
         app_Fx = self.data['app_Fx']
-
-        ligament_slack_length = self.data['ligament_slack_length']
-        ligament_transition_point = self.data['ligament_transition_point']
-        ligament_stiffness = self.data['ligament_stiffness']
 
         # Frames
         self.world_frame = ReferenceFrame("WorldFrame")
@@ -66,16 +65,8 @@ class KneeModel(AbstractModel):
         self.application_point = Point([0, -application_length, 0], self.tibia_frame)
 
         # Springs
-        self.lig_springA = BlankevoortSpring(self.lig_top_pointA, self.lig_bottom_pointA, "LigSpringA",
-             ligament_transition_point, ligament_stiffness, ligament_slack_length)
-        self.lig_springB = BlankevoortSpring(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB",
-             ligament_transition_point, ligament_stiffness, ligament_slack_length)
-        # self.lig_springA = TriLinearSpring(self.lig_top_pointA, self.lig_bottom_pointA, "LigSpringA",
-        #     k_1 = ligament_stiffness/2, k_2=ligament_stiffness, k_3=ligament_stiffness*5,
-        #     x_0 = ligament_slack_length, a_1 = ligament_transition_point, a_2 = ligament_slack_length*2)
-        # self.lig_springB = TriLinearSpring(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB",
-        #     k_1 = ligament_stiffness/2, k_2=ligament_stiffness, k_3=ligament_stiffness*5,
-        #     x_0 = ligament_slack_length, a_1 = ligament_transition_point, a_2 = ligament_slack_length*2)
+        self.lig_springA = BlankevoortSpring.from_ligament_function(self.lig_top_pointA, self.lig_bottom_pointA, "LigSpringA", self.lig_function_left)
+        self.lig_springB = BlankevoortSpring.from_ligament_function(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB", self.lig_function_right)
 
         # Constraint forces
         self.constraint_force, self.constraint_unknowns = self.knee_joint.get_constraint_force()
@@ -138,6 +129,7 @@ class KneeModel(AbstractModel):
         self.constraint_force.substitute_solutions(solutions)
         self.applied_force.substitute_solutions(solutions)
 
+        # Add computed values to solutions dictionary
         solutions['lig_springA_length'] = self.lig_springA.get_spring_length()
         solutions['lig_springB_length'] = self.lig_springB.get_spring_length()
 
@@ -146,6 +138,7 @@ class KneeModel(AbstractModel):
 
         solutions['applied_force'] = self.applied_force.get_force()
         solutions['constraint_force'] = self.constraint_force.get_force()
+        
         return solutions
     
     def plot_model(self):
@@ -171,28 +164,12 @@ class KneeModel(AbstractModel):
         vis.add_line(self.lig_on_tib_vis, self.lig_bottom_pointA, label="TibalPlataeuA")
         vis.add_line(self.lig_on_tib_vis, self.lig_bottom_pointB, label="TibalPlataeuB")
 
-        
-        vis.add_force(self.constraint_force, label=self.constraint_force.name)
-        vis.add_force(self.lig_springA.get_force_on_point2(), label="LigSpringForceA")
-        vis.add_force(self.lig_springB.get_force_on_point2(), label="LigSpringForceB")
-        vis.add_force(self.applied_force, label="AppliedForce")
+        # vis.add_force(self.constraint_force, associated_body_name="Constraint", label=self.constraint_force.name)
+        # vis.add_force(self.lig_springA.get_force_on_point2(), associated_body_name="LigamentA", label="LigSpringForceA")
+        # vis.add_force(self.lig_springB.get_force_on_point2(), associated_body_name="LigamentB", label="LigSpringForceB")
+        # vis.add_force(self.applied_force, associated_body_name="Applied", label="AppliedForce")
 
 
         vis.render(show_values=False, equal_aspect=True)
-
-if __name__ == "__main__":
-    with open('./statics_solver/mechanics_config.yaml', 'r') as file:
-        config = yaml.safe_load(file)
-
-    data = config['input_data']
-    for key, value in data.items():
-        if isinstance(value, str) and '_sym' in value:
-            data[key] = Symbol(key.replace('_sym', ''))
-
-    model = KneeModel(data, log=False)
-    model.build_model()
-    model.solve()
-    model.plot_model()
-    plt.show()
 
 

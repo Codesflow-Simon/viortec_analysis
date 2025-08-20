@@ -3,6 +3,7 @@ from sympy import Expr # For type hinting
 from .reference_frame import Point
 import warnings # For issuing warnings
 from .rigid_body import Force
+from ligament_models import BlankevoortFunction
 
 class AbstractSpring:
     def __init__(self, point_1: Point, point_2: Point, name: str):
@@ -96,6 +97,13 @@ class AbstractSpring:
         """Returns the symbolic energy stored in the spring."""
         raise NotImplementedError("Subclasses must implement this method")
 
+    def substitute_solutions(self, solutions):
+        """
+        Substitutes the solutions into the spring.
+        """
+        self.point_1.substitute_solutions(solutions)
+        self.point_2.substitute_solutions(solutions)
+
 
 class LinearSpring(AbstractSpring):
     def __init__(self, point_1: Point, point_2: Point, name: str, k: [float, Expr], x0: [float, Expr]):
@@ -167,19 +175,25 @@ class TriLinearSpring(AbstractSpring):
         )
 
 class BlankevoortSpring(AbstractSpring):
-    def __init__(self, point_1: Point, point_2: Point, name: str, transition_length: [float, Expr],  k_1: [float, Expr], x0: [float, Expr]):
+    def __init__(self, point_1: Point, point_2: Point, name: str, k: [float, Expr], alpha: [float, Expr], l_0: [float, Expr]):
         """
         A spring that has a transition length, and a different spring constant for each transition length.
         Consider the spring strain, x, which is zero at rest length x0.
-        When x < transition_length, the spring constant is k_1.
+        When x < alpha, the spring constant is k.
         """
         from ligament_models import BlankevoortFunction
-        self.function = BlankevoortFunction([transition_length, k_1, x0, 0])
+        self.function = BlankevoortFunction([k, alpha, l_0, 0])
         
         super().__init__(point_1, point_2, name)
-        self.transition_length = transition_length
-        self.k_1 = k_1
-        self.x0 = x0
+        self.alpha = alpha
+        self.k = k
+        self.l_0 = l_0
+
+    @staticmethod
+    def from_ligament_function(point_1: Point, point_2: Point, name: str, ligament_function: BlankevoortFunction):
+        params = ligament_function.get_params()
+        spring = BlankevoortSpring(point_1, point_2, name, params[0], params[1], params[2])
+        return spring
 
     def get_force_magnitude(self) -> Expr:
         """Returns the symbolic magnitude of the spring force. Positive for tension, negative for compression."""

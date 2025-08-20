@@ -5,15 +5,15 @@ from sympy import symbols
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from ligament_reconstructor.modelling.function import LigamentFunction, TrilinearFunction, BlankevoortFunction
+from ligament_models import LigamentFunction, TrilinearFunction, BlankevoortFunction
 
 class TestBlankevoortFunction(unittest.TestCase):
     """Test cases for the BlankevoortFunction class."""
     
     def setUp(self):
         """Set up test fixtures."""
-        # Parameters: [alpha, k, l_0, f_ref]
-        self.params = np.array([1.07, 60, 44, 0.05])
+        # Parameters: [k, alpha, l_0, f_ref]
+        self.params = np.array([60, 1.07, 44, 0.05])
         self.function = BlankevoortFunction(self.params)
         self.x_test = np.array([20, 40, 60, 80, 100])
     
@@ -30,7 +30,7 @@ class TestBlankevoortFunction(unittest.TestCase):
     def test_get_param_symbols(self):
         """Test get_param_symbols method."""
         symbols = self.function.get_param_symbols()
-        expected_symbols = ['alpha', 'k', 'l_0', 'f_ref']
+        expected_symbols = ['k', 'alpha', 'l_0', 'f_ref']
         for i, symbol in enumerate(symbols):
             self.assertEqual(str(symbol), expected_symbols[i])
     

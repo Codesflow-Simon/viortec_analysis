@@ -385,26 +385,14 @@ def plot_all_mcmc_diagnostics(samples, param_names, acceptance_rate=None, save_p
     
     # Filter samples that violate constraints if constraint_manager is provided
     if constraint_manager is not None:
-        from .sampling_covariance import check_constraint_violations
-        violation_rate, violation_details = check_constraint_violations(samples, constraint_manager)
-        print(f"Constraint violation rate: {violation_rate:.3f}")
+        # Analyze constraint violations
+        violation_analysis = analyze_constraint_violations(samples, constraint_manager)
+        print("\nConstraint violation analysis:")
+        for constraint_name, analysis in violation_analysis.items():
+            if analysis['percentage'] > 0:
+                print(f"  {analysis['description']}: {analysis['percentage']:.1f}% violations")
         
-        if violation_rate > 0:
-            # Analyze constraint violations
-            violation_analysis = analyze_constraint_violations(samples, constraint_manager)
-            print("\nConstraint violation analysis:")
-            for constraint_name, analysis in violation_analysis.items():
-                if analysis['percentage'] > 0:
-                    print(f"  {analysis['description']}: {analysis['percentage']:.1f}% violations")
-            
-            # Filter out samples that violate constraints
-            valid_samples = filter_valid_samples(samples, constraint_manager)
-            print(f"\nFiltered {len(samples) - len(valid_samples)} invalid samples")
-            print(f"Using {len(valid_samples)} valid samples for plotting")
-            samples = valid_samples
-        else:
-            print("All samples satisfy constraints!")
-    
+
     # Main diagnostics
     plot_mcmc_diagnostics(samples, param_names, acceptance_rate, save_plots)
     
@@ -432,6 +420,10 @@ def filter_valid_samples(samples, constraint_manager):
     """
     if constraint_manager is None:
         return samples
+    
+    # Convert to numpy array if it's a list
+    if isinstance(samples, list):
+        samples = np.array(samples)
     
     constraints = constraint_manager.get_constraints()
     valid_indices = []

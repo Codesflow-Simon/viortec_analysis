@@ -4,7 +4,7 @@ from sympy import symbols, Piecewise, diff, Matrix, lambdify
 
 class LigamentFunction:
     def __init__(self, params: np.ndarray):
-        self.params = params
+        self.set_params(params)
         # Cache for symbolic expressions and compiled functions
         self._cached_expr = None
         self._cached_dx_func = None
@@ -56,11 +56,15 @@ class LigamentFunction:
     def get_params(self):
         return self.params
 
-    def set_params(self, params: np.ndarray):
-        self.params = params
+    def set_params(self, params):
+        if isinstance(params, dict):
+            self.params = np.array(list(params.values()))
+        else:
+            self.params = params
 
     def __call__(self, x: np.ndarray):
-        return self.function(x, self.params)
+        result = self.function(x, self.params)
+        return result
 
     def sympy_implementation(self):
         """
@@ -152,4 +156,5 @@ class LigamentFunction:
         Evaluates the function using cached compiled function.
         """
         return self._cached_func(x, *params)
+
 

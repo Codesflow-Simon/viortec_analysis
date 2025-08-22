@@ -17,20 +17,19 @@ class BlankevoortFunction(LigamentFunction):
         """
         x, k, alpha, l_0, f_ref = symbols('x k alpha l_0 f_ref')
 
-        transition_length = l_0 * (1 + alpha)
-        transition_elongation = transition_length - l_0
+        transition_length = l_0 * (1 + alpha) - l_0
 
         force_expr = lambda x_: Piecewise(
-            (0, x_ < l_0),
-            (k * (x_ - l_0)**2 / (2 * transition_elongation), x_ <= transition_length),
-            (k * (transition_elongation)**2 / (2 * transition_elongation) + k * (x_ - transition_length), True)
+            (0, x_ < 0),
+            (k * (x_)**2 / (2 * transition_length), x_ <= transition_length),
+            (k * (transition_length)**2 / (2 * transition_length) + k * (x_ - transition_length), True)
         )
 
-        # relative_force = force_expr(x)
-        # total_force = relative_force - f_ref
+        relative_force = force_expr(x-l_0)
+        total_force = relative_force - f_ref
 
-        relative_force = force_expr(x+f_ref)
-        total_force = relative_force - k* f_ref
+        # relative_force = force_expr(x-l_0+f_ref)
+        # total_force = relative_force - k* f_ref
         return total_force
 
     def get_param_symbols(self):

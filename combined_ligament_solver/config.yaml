@@ -1,6 +1,6 @@
 data:
   x_noise: 0
-  y_noise: 20
+  y_noise: 5
   n_points: 200
   x_min: 0.20 # milimeter domain
   x_max: 0.30 
@@ -8,7 +8,7 @@ data:
 blankevoort_mcl:
     k: 60 # N per mm
     alpha: 0.06 # Transition length, at 6% strain
-    l_0: 45 # mm
+    l_0: 50 # mm
     f_ref: 0 # strain
 
 mechanics:

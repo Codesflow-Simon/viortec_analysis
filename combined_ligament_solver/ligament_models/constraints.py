@@ -86,8 +86,8 @@ class ConstraintManager:
                 BetweenConstraint(10, 'k', 100),
                 BetweenConstraint(0.02, 'alpha', 0.12),
                 BetweenConstraint(40, 'l_0', 60),
-                # BetweenConstraint(0.0, 'f_ref', 300),
-                BetweenConstraint(0, 'f_ref', 5),
+                BetweenConstraint(0.0, 'f_ref', 300),
+                # BetweenConstraint(0, 'f_ref', 5),
             ]
         
         return []

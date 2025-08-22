@@ -1,1 +1,1 @@
-from .ligament_reconstructor import LigamentReconstructor
+from .ligament_optimiser import reconstruct_ligament

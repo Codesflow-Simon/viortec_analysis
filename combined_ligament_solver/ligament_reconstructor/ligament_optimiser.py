@@ -9,42 +9,112 @@ from ligament_models.transformations import inverse_constraint_transform, constr
 reg_coef = 1e-1
 
 def loss(params, x_data, y_data, funct, include_reg=False):
-    funct.set_params(params)
-    y_pred = funct(x_data)
-    squared_error = np.sum((y_data - y_pred)**2)
-    l1_term = np.abs(params).sum()
-    if include_reg:
-        l1 =  reg_coef*l1_term
-        loss = squared_error + l1
+    # Convert single parameter set to 2D array for vectorized computation
+    if params.ndim == 1:
+        params_array = params.reshape(1, -1)
     else:
-        loss = squared_error
-    return loss
+        params_array = params
+    
+    # Use vectorized function evaluation
+    y_pred_matrix = funct.vectorized_function(x_data, params_array)
+    
+    # For single parameter set, extract the result
+    if params.ndim == 1:
+        y_pred = y_pred_matrix[0]
+        squared_error = np.sum((y_data - y_pred)**2)
+        l1_term = np.abs(params).sum()
+        if include_reg:
+            l1 = reg_coef * l1_term
+            loss = squared_error + l1
+        else:
+            loss = squared_error
+        return loss
+    else:
+        # Multiple parameter sets - compute loss for each
+        squared_errors = np.sum((y_data - y_pred_matrix)**2, axis=1)
+        l1_terms = np.sum(np.abs(params_array), axis=1)
+        if include_reg:
+            l1 = reg_coef * l1_terms
+            losses = squared_errors + l1
+        else:
+            losses = squared_errors
+        return losses
 
 def loss_jac(params, x_data, y_data, funct, funct_jac, include_reg=False):
     n = len(x_data)
     p = len(params)
-    funct.set_params(params)
-    y_pred = funct(x_data)
-    residuals = y_pred - y_data
-    J_matrix = funct.jac(x_data)  # Shape: (n_params, n_points)
-    # Compute gradient: 2/n * J_matrix @ residuals
-    G = 2/n * J_matrix @ residuals
-    if include_reg:
-        G += reg_coef * np.sign(params)
-    return G
+    
+    # Convert single parameter set to 2D array for vectorized computation
+    if params.ndim == 1:
+        params_array = params.reshape(1, -1)
+    else:
+        params_array = params
+    
+    # Use vectorized function and Jacobian evaluation
+    y_pred_matrix = funct.vectorized_function(x_data, params_array)
+    J_matrix_3d = funct.vectorized_jacobian(x_data, params_array)  # Shape: (n_param_sets, n_params, n_points)
+    
+    # For single parameter set, extract the result
+    if params.ndim == 1:
+        y_pred = y_pred_matrix[0]
+        J_matrix = J_matrix_3d[0]  # Shape: (n_params, n_points)
+        residuals = y_pred - y_data
+        # Compute gradient: 2/n * J_matrix @ residuals
+        G = 2/n * J_matrix @ residuals
+        if include_reg:
+            G += reg_coef * np.sign(params)
+        return G
+    else:
+        # Multiple parameter sets - compute gradient for each
+        residuals_matrix = y_pred_matrix - y_data  # Shape: (n_param_sets, n_points)
+        gradients = np.zeros_like(params_array)
+        
+        for i in range(params_array.shape[0]):
+            J_matrix = J_matrix_3d[i]  # Shape: (n_params, n_points)
+            residuals = residuals_matrix[i]  # Shape: (n_points,)
+            G = 2/n * J_matrix @ residuals
+            if include_reg:
+                G += reg_coef * np.sign(params_array[i])
+            gradients[i] = G
+            
+        return gradients
 
 def loss_hess(params, x_data, y_data, funct, funct_jac, funct_hess, include_reg=False):
     n = len(x_data)
     p = len(params)
-    funct.set_params(params)
-    y_pred = funct(x_data)
-    J_matrix = funct.jac(x_data)  # Shape: (n_params, n_points)
-    # Compute Gauss-Newton Hessian: J_matrix @ J_matrix.T
-    H_gn = J_matrix @ J_matrix.T
-    H_full = 2/n * H_gn
-    if include_reg:
-        H_full += reg_coef * np.eye(p)
-    return H_full
+    
+    # Convert single parameter set to 2D array for vectorized computation
+    if params.ndim == 1:
+        params_array = params.reshape(1, -1)
+    else:
+        params_array = params
+    
+    # Use vectorized Jacobian evaluation
+    J_matrix_3d = funct.vectorized_jacobian(x_data, params_array)  # Shape: (n_param_sets, n_params, n_points)
+    
+    # For single parameter set, extract the result
+    if params.ndim == 1:
+        J_matrix = J_matrix_3d[0]  # Shape: (n_params, n_points)
+        # Compute Gauss-Newton Hessian: J_matrix @ J_matrix.T
+        H_gn = J_matrix @ J_matrix.T
+        H_full = 2/n * H_gn
+        if include_reg:
+            H_full += reg_coef * np.eye(p)
+        return H_full
+    else:
+        # Multiple parameter sets - compute Hessian for each
+        hessians = np.zeros((params_array.shape[0], p, p))
+        
+        for i in range(params_array.shape[0]):
+            J_matrix = J_matrix_3d[i]  # Shape: (n_params, n_points)
+            # Compute Gauss-Newton Hessian: J_matrix @ J_matrix.T
+            H_gn = J_matrix @ J_matrix.T
+            H_full = 2/n * H_gn
+            if include_reg:
+                H_full += reg_coef * np.eye(p)
+            hessians[i] = H_full
+            
+        return hessians
 
 
 

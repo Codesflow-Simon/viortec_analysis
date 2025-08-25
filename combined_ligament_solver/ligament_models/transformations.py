@@ -10,26 +10,33 @@ def inverse_constraint_transform(params: np.ndarray, constraint_manager: Constra
     that lies in the interval (a, b).
     
     Args:
-        params: Unconstrained parameter array
+        params: Unconstrained parameter array, matrix (n_samples x n_params), or list
         constraint_manager: ConstraintManager instance with bounds
         
     Returns:
-        Transformed parameters within constraints
+        Transformed parameters within constraints (same shape as input)
     """
-    transformed_params = np.copy(params)
     constraints_list = constraint_manager.get_constraints_list()
     
+    # Convert list to numpy array if needed
+    params = np.array(params)
+    
+    # Handle both 1D and 2D inputs
+    input_is_1d = params.ndim == 1
+    if input_is_1d:
+        params = params.reshape(1, -1)
+        
+    transformed_params = np.copy(params)
+    
     for i, (lower, upper) in enumerate(constraints_list):
-        if i < len(params):
+        if i < params.shape[1]:
             # Apply the log transformation: theta = a + (b - a) / (1 + exp(-phi))
-            
-            phi = params[i]
+            phi = params[:, i]
             a, b = lower, upper
             theta = a + (b - a) / (1 + np.exp(-phi))
-            transformed_params[i] = theta
+            transformed_params[:, i] = theta
     
-    return transformed_params
-
+    return transformed_params[0] if input_is_1d else transformed_params
 def constraint_transform(params: np.ndarray, constraint_manager: ConstraintManager) -> np.ndarray:
     """
     Transform of constrained parameters to unconstrained space.
@@ -38,25 +45,34 @@ def constraint_transform(params: np.ndarray, constraint_manager: ConstraintManag
     where theta is the constrained parameter in (a, b) and phi is the unconstrained parameter.
     
     Args:
-        params: Constrained parameter array
+        params: Constrained parameter array, matrix (n_samples x n_params), or list
         constraint_manager: ConstraintManager instance with bounds
         
     Returns:
-        Unconstrained parameters
+        Unconstrained parameters (same shape as input)
     """
-    unconstrained_params = np.copy(params)
+    # Convert list to numpy array if needed
+    params = np.array(params)
+    
     constraints_list = constraint_manager.get_constraints_list()
     
+    # Handle both 1D and 2D inputs
+    input_is_1d = params.ndim == 1
+    if input_is_1d:
+        params = params.reshape(1, -1)
+        
+    unconstrained_params = np.copy(params)
+    
     for i, (lower, upper) in enumerate(constraints_list):
-        if i < len(params):
+        if i < params.shape[1]:
             # Apply the inverse log transformation: phi = -log((b - theta) / (theta - a))
-            theta = params[i]
+            theta = params[:, i]
             a, b = lower, upper
             
             # Ensure theta is within bounds (with small tolerance for numerical stability)
             theta = np.clip(theta, a + 1e-10, b - 1e-10)
             
             phi = -np.log((b - theta) / (theta - a))
-            unconstrained_params[i] = phi
+            unconstrained_params[:, i] = phi
     
-    return unconstrained_params
+    return unconstrained_params[0] if input_is_1d else unconstrained_params

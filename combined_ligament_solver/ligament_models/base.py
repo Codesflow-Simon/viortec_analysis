@@ -157,4 +157,99 @@ class LigamentFunction:
         """
         return self._cached_func(x, *params)
 
+    # Vectorized methods for optimization
+    def vectorized_function(self, x: np.ndarray, params_array: np.ndarray):
+        """
+        Vectorized function evaluation for multiple parameter sets.
+        
+        Args:
+            x: Input points, shape (n_points,)
+            params_array: Parameter sets, shape (n_param_sets, n_params)
+            
+        Returns:
+            Function values, shape (n_param_sets, n_points)
+        """
+        # Use numpy's apply_along_axis for better performance than Python loops
+        def eval_single_params(params):
+            return self._cached_func(x, *params)
+        
+        return np.apply_along_axis(eval_single_params, 1, params_array)
 
+    def vectorized_jacobian(self, x: np.ndarray, params_array: np.ndarray):
+        """
+        Vectorized Jacobian computation for multiple parameter sets.
+        
+        Args:
+            x: Input points, shape (n_points,)
+            params_array: Parameter sets, shape (n_param_sets, n_params)
+            
+        Returns:
+            Jacobians, shape (n_param_sets, n_params, n_points) 
+        """
+        n_param_sets = params_array.shape[0]
+        n_params = params_array.shape[1]
+        n_points = len(x)
+        results = np.zeros((n_param_sets, n_params, n_points))
+        
+        # Use numpy's apply_along_axis for better performance
+        def eval_jac_single_params(params):
+            jac_row = np.zeros((n_params, n_points))
+            for j, func in enumerate(self._cached_jac_funcs):
+                result = func(x, *params)
+                if np.isscalar(result):
+                    result = np.full(n_points, result)
+                result = np.asarray(result).flatten()
+                if len(result) != n_points:
+                    if len(result) == 1:
+                        result = np.full(n_points, result[0])
+                    else:
+                        raise ValueError(f"Jacobian result has unexpected length: {len(result)}, expected {n_points}")
+                jac_row[j] = result
+            return jac_row
+        
+        # Apply to each parameter set
+        for i in range(n_param_sets):
+            results[i] = eval_jac_single_params(params_array[i])
+                
+        return results
+
+    def vectorized_hessian(self, x: np.ndarray, params_array: np.ndarray):
+        """
+        Vectorized Hessian computation for multiple parameter sets.
+        
+        Args:
+            x: Input points, shape (n_points,)
+            params_array: Parameter sets, shape (n_param_sets, n_params)
+            
+        Returns:
+            Hessians, shape (n_param_sets, n_points, n_params, n_params)
+        """
+        n_param_sets = params_array.shape[0]
+        n_params = params_array.shape[1]
+        n_points = len(x)
+        results = np.zeros((n_param_sets, n_points, n_params, n_params))
+        
+        # Use numpy's apply_along_axis for better performance
+        def eval_hess_single_params(params):
+            hess_values = []
+            for func in self._cached_hess_funcs:
+                result = func(x, *params)
+                if np.isscalar(result):
+                    result = np.full(n_points, result)
+                result = np.asarray(result).flatten()
+                if len(result) != n_points:
+                    if len(result) == 1:
+                        result = np.full(n_points, result[0])
+                    else:
+                        raise ValueError(f"Hessian result has unexpected length: {len(result)}, expected {n_points}")
+                hess_values.append(result)
+            
+            # Reshape to (n_points, n_params, n_params)
+            hess_matrix = np.array(hess_values).reshape(n_params, n_params, n_points).transpose(2, 0, 1)
+            return hess_matrix
+        
+        # Apply to each parameter set
+        for i in range(n_param_sets):
+            results[i] = eval_hess_single_params(params_array[i])
+            
+        return results

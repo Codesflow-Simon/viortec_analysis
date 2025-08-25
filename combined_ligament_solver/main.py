@@ -60,17 +60,23 @@ if __name__ == "__main__":
         return length, force, relative_force
     length, force, relative_force = sort_data(length, force, relative_force)
 
+    result_obj = reconstruct_ligament(length, relative_force)
+    function = result_obj['function']
+    print(result_obj['params'])
+
     gt_params = config['blankevoort_mcl']
     gt_params['f_ref'] = reference_point
 
-    from ligament_reconstructor.runge_kutta import IntegralProbability
+    from ligament_reconstructor.direct_integral import IntegralProbability
     from ligament_models.constraints import ConstraintManager
     constraint_manager = ConstraintManager()
-    probability = IntegralProbability(constraint_manager)
-    probability.probability_density(np.array(list(gt_params.values())), length, relative_force, lig_left, config['data']['y_noise'])
-    print(probability.probability_density(np.array(list(gt_params.values())), length, relative_force, lig_left, config['data']['y_noise']))
-
-
+    # Create probability calculator
+    prob_calc = IntegralProbability(constraint_manager)
+    
+    # Get parameter names and bounds
+    param_names = constraint_manager.get_param_names()
+    constraints_list = constraint_manager.get_constraints_list()
+    
     result_obj = reconstruct_ligament(length, relative_force)
     function = result_obj['function']
     print(result_obj['params'])
@@ -80,10 +86,6 @@ if __name__ == "__main__":
 
     x_data = np.linspace(min(gt_params['l_0']*0.9, np.min(length)), np.max(length), 100)
     plt.plot(x_data, function(x_data), c='b', label='Model')
-
-    # Plot a few random MCMC samples
-    n_samples_to_plot = 50
-    random_indices = np.random.choice(len(samples), n_samples_to_plot)
 
     print(gt_params)
     function.set_params(np.array(list(gt_params.values())))

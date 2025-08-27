@@ -8,7 +8,7 @@ data:
 blankevoort_mcl:
     k: 60 # N per mm
     alpha: 0.06 # Transition length, at 6% strain
-    l_0: 50 # mm
+    l_0: 46 # mm
     f_ref: 0 # strain
 
 mechanics:

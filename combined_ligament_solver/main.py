@@ -19,7 +19,7 @@ if __name__ == "__main__":
     # model.plot_model()
     # plt.show()
 
-    thetas = np.linspace(-np.radians(2), np.radians(2), 50)
+    thetas = np.linspace(-np.radians(1), np.radians(1), 15)
 
     length_estimates_a = []
     force_estimates_a = []
@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     force = force + np.random.normal(0, config['data']['y_noise'], len(force))
 
-    reference_point = force[0]
+    reference_point = force[5]
 
     print(f"Reference force: {reference_point}")
     relative_force = force - reference_point # We only measure relative changes in force
@@ -67,19 +67,13 @@ if __name__ == "__main__":
     gt_params = config['blankevoort_mcl']
     gt_params['f_ref'] = reference_point
 
-    from ligament_reconstructor.direct_integral import IntegralProbability
     from ligament_models.constraints import ConstraintManager
+    from ligament_reconstructor.slide_search import slide_search
     constraint_manager = ConstraintManager()
-    # Create probability calculator
-    prob_calc = IntegralProbability(constraint_manager)
-    
-    # Get parameter names and bounds
-    param_names = constraint_manager.get_param_names()
-    constraints_list = constraint_manager.get_constraints_list()
-    
-    result_obj = reconstruct_ligament(length, relative_force)
-    function = result_obj['function']
-    print(result_obj['params'])
+
+    l_0_bounds = constraint_manager.get_constraints_list()[2]
+    result = slide_search(function, length, relative_force, l_0_bounds)
+    print(result)
 
     plt.figure()
     plt.scatter(length, relative_force, c='r', label='Data', s=8, alpha=0.5)

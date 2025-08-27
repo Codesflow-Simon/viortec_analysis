@@ -6,7 +6,7 @@ from ligament_models import *
 from ligament_models.constraints import ConstraintManager
 from ligament_models.transformations import inverse_constraint_transform, constraint_transform
 
-reg_coef = 1e-1
+reg_coef = 1e-2
 
 def loss(params, x_data, y_data, funct, include_reg=False):
     # Convert single parameter set to 2D array for vectorized computation
@@ -81,23 +81,35 @@ def loss_jac(params, x_data, y_data, funct, funct_jac, include_reg=False):
 
 def loss_hess(params, x_data, y_data, funct, funct_jac, funct_hess, include_reg=False):
     n = len(x_data)
-    p = len(params)
     
     # Convert single parameter set to 2D array for vectorized computation
     if params.ndim == 1:
         params_array = params.reshape(1, -1)
+        p = len(params)  # Number of parameters per set
     else:
         params_array = params
+        p = params.shape[1]  # Number of parameters per set
     
-    # Use vectorized Jacobian evaluation
-    J_matrix_3d = funct.vectorized_jacobian(x_data, params_array)  # Shape: (n_param_sets, n_params, n_points)
+    # Use vectorized Hessian evaluation
+    H_matrix_4d = funct.vectorized_hessian(x_data, params_array)  # Shape: (n_param_sets, n_points, n_params, n_params)
     
     # For single parameter set, extract the result
     if params.ndim == 1:
-        J_matrix = J_matrix_3d[0]  # Shape: (n_params, n_points)
-        # Compute Gauss-Newton Hessian: J_matrix @ J_matrix.T
-        H_gn = J_matrix @ J_matrix.T
-        H_full = 2/n * H_gn
+        # Compute residuals
+        y_pred = funct.vectorized_function(x_data, params_array)[0]
+        residuals = y_pred - y_data  # Shape: (n_points,)
+        
+        # Get Hessian matrix for this parameter set
+        H_matrix = H_matrix_4d[0]  # Shape: (n_points, n_params, n_params)
+        
+        # Compute full Hessian: H = 2 * sum(r_i * H_i)
+        H_full = np.zeros((p, p))
+        for i in range(n):
+            # Ensure proper broadcasting by explicitly handling scalar multiplication
+            residual_scalar = float(residuals[i])
+            H_full += 2 * residual_scalar * H_matrix[i]  # Shape: (n_params, n_params)
+        
+        # Add regularization if requested
         if include_reg:
             H_full += reg_coef * np.eye(p)
         return H_full
@@ -106,10 +118,21 @@ def loss_hess(params, x_data, y_data, funct, funct_jac, funct_hess, include_reg=
         hessians = np.zeros((params_array.shape[0], p, p))
         
         for i in range(params_array.shape[0]):
-            J_matrix = J_matrix_3d[i]  # Shape: (n_params, n_points)
-            # Compute Gauss-Newton Hessian: J_matrix @ J_matrix.T
-            H_gn = J_matrix @ J_matrix.T
-            H_full = 2/n * H_gn
+            # Compute residuals for this parameter set
+            y_pred = funct.vectorized_function(x_data, params_array)[i]
+            residuals = y_pred - y_data  # Shape: (n_points,)
+            
+            # Get Hessian matrix for this parameter set
+            H_matrix = H_matrix_4d[i]  # Shape: (n_points, n_params, n_params)
+            
+            # Compute full Hessian: H = 2 * sum(r_i * H_i)
+            H_full = np.zeros((p, p))
+            for j in range(n):
+                # Ensure proper broadcasting by explicitly handling scalar multiplication
+                residual_scalar = float(residuals[j])
+                H_full += 2 * residual_scalar * H_matrix[j]  # Shape: (n_params, n_params)
+            
+            # Add regularization if requested
             if include_reg:
                 H_full += reg_coef * np.eye(p)
             hessians[i] = H_full
@@ -129,7 +152,7 @@ def reconstruct_ligament(x_data:np.ndarray, y_data:np.ndarray):
     derivatives = dy/dx
     
     # Use maximum derivative as initial estimate for k
-    k_init = np.mean(np.abs(derivatives))
+    k_init = np.percentile(np.abs(derivatives), 75)
     
     # Update initial guess with k estimate
     initial_guess_dict['k'] = k_init
@@ -138,7 +161,8 @@ def reconstruct_ligament(x_data:np.ndarray, y_data:np.ndarray):
     l_0_init = x_data.min() - 0.5 * initial_guess_dict['alpha']
     
     # Use lowest y value as initial f_ref 
-    f_ref_init = y_data.min()
+    # Seems to work better if we come from below
+    f_ref_init = -y_data.min()
     
     # Update initial guesses
     initial_guess_dict['l_0'] = l_0_init
@@ -153,12 +177,15 @@ def reconstruct_ligament(x_data:np.ndarray, y_data:np.ndarray):
     initial_guess_list = list(initial_guess_dict.values())
 
     initial_guess_list = constraint_transform(initial_guess_list, constraint_manager)
-
     function = BlankevoortFunction(initial_guess_list)
+
 
     loss_func = lambda params: loss(inverse_constraint_transform(params, constraint_manager), x_data, y_data, funct=function, include_reg=True)
     jac_func = lambda params: loss_jac(inverse_constraint_transform(params, constraint_manager), x_data, y_data, funct=function, funct_jac=function.jac, include_reg=True)
     hess_func = lambda params: loss_hess(inverse_constraint_transform(params, constraint_manager), x_data, y_data, funct=function, funct_jac=function.jac, funct_hess=function.hess, include_reg=True)
+
+    initial_loss = loss_func(initial_guess_list)
+
 
     # Other possible optimizers:
     # Derivative-free methods:
@@ -181,7 +208,7 @@ def reconstruct_ligament(x_data:np.ndarray, y_data:np.ndarray):
     # - 'trust-constr': Trust-region method with constraints
 
     opt_result = minimize(loss_func, initial_guess_list, method='trust-constr', 
-                         jac=jac_func, tol=1e-6)
+                         jac=jac_func, hess=hess_func, options={'maxiter': 1000}) #, Add hess=hess_func if you want to use the Hessian
     opt_result.x = inverse_constraint_transform(opt_result.x, constraint_manager)
 
     param_names = constraint_manager.get_param_names()
@@ -192,6 +219,7 @@ def reconstruct_ligament(x_data:np.ndarray, y_data:np.ndarray):
     loss_hess_value = loss_hess(opt_result.x, x_data, y_data, funct=function, funct_jac=function.jac, funct_hess=function.hess)
 
     predicted_y = function(x_data)
+    function.set_params(params)
     info_dict = {
         'opt_result': opt_result,
         'y_hat': predicted_y,
@@ -202,5 +230,7 @@ def reconstruct_ligament(x_data:np.ndarray, y_data:np.ndarray):
         'loss': loss_value,
         'loss_jac': loss_jac_value,
         'loss_hess': loss_hess_value,
+        'initial_guess': initial_guess_dict,
+        'initial_loss': initial_loss,
     }
     return info_dict

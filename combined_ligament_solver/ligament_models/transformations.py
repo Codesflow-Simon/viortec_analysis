@@ -33,9 +33,10 @@ def inverse_constraint_transform(params: np.ndarray, constraint_manager: Constra
             # Apply the log transformation: theta = a + (b - a) / (1 + exp(-phi))
             phi = params[:, i]
             a, b = lower, upper
+            # Clip phi to avoid overflow in exp
+            phi = np.clip(phi, -700, 700)  # exp(700) is near float max
             theta = a + (b - a) / (1 + np.exp(-phi))
             transformed_params[:, i] = theta
-    
     return transformed_params[0] if input_is_1d else transformed_params
 def constraint_transform(params: np.ndarray, constraint_manager: ConstraintManager) -> np.ndarray:
     """
@@ -76,3 +77,15 @@ def constraint_transform(params: np.ndarray, constraint_manager: ConstraintManag
             unconstrained_params[:, i] = phi
     
     return unconstrained_params[0] if input_is_1d else unconstrained_params
+
+def sliding_operation(params: dict, slide_factor: float) -> dict:
+    """
+    Slide the parameters by a factor of slide_factor.
+    This preserves forces at the same x-coordinates in the linear region.
+    """
+    params = params.copy()
+    params['l_0'] = params['l_0'] + slide_factor
+    # The correct adjustment for f_ref to preserve forces in the linear region
+    # accounts for the fact that transition_length = l_0 * alpha changes
+    params['f_ref'] = params['f_ref'] - params['k'] * slide_factor * (1 + params['alpha']/2)
+    return params

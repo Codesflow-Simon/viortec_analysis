@@ -172,6 +172,82 @@ class TestBlankevoortFunction(unittest.TestCase):
             if not np.allclose(hessian_mat, hessian_mat.T, rtol=tol):
                 self.fail(f"Hessian is not symmetric, got \n{hessian_mat}")
 
+    def test_vectorized_function(self):
+        """Test vectorized function evaluation."""
+        # Test with multiple parameter sets
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],  # Original parameters
+            [70, 1.07, 44, 0.05],  # Different k
+            [60, 1.17, 44, 0.05],  # Different alpha
+            [60, 1.07, 54, 0.05]   # Different l_0
+        ])
+        
+        result = self.function.vectorized_function(self.x_test, params_array)
+        
+        # Check shape
+        expected_shape = (4, len(self.x_test))
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Check that results are finite
+        self.assertTrue(np.all(np.isfinite(result)))
+        
+        # Check consistency with single evaluation
+        single_result = self.function.vectorized_function(self.x_test, self.params.reshape(1, -1))
+        expected_single = self.function(self.x_test)
+        np.testing.assert_array_almost_equal(single_result[0], expected_single)
+
+    def test_vectorized_jacobian(self):
+        """Test vectorized Jacobian computation."""
+        # Test with multiple parameter sets
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],  # Original parameters
+            [70, 1.07, 44, 0.05],  # Different k
+            [60, 1.17, 44, 0.05]   # Different alpha
+        ])
+        
+        result = self.function.vectorized_jacobian(self.x_test, params_array)
+        
+        # Check shape
+        expected_shape = (3, 4, len(self.x_test))  # (n_param_sets, n_params, n_points)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Check that results are finite
+        self.assertTrue(np.all(np.isfinite(result)))
+        
+        # Check consistency with single evaluation
+        single_result = self.function.vectorized_jacobian(self.x_test, self.params.reshape(1, -1))
+        expected_single = self.function.jac(self.x_test)
+        np.testing.assert_array_almost_equal(single_result[0], expected_single)
+
+    def test_vectorized_hessian(self):
+        """Test vectorized Hessian computation."""
+        # Test with multiple parameter sets
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],  # Original parameters
+            [70, 1.07, 44, 0.05],  # Different k
+            [60, 1.17, 44, 0.05]   # Different alpha
+        ])
+        
+        result = self.function.vectorized_hessian(self.x_test, params_array)
+        
+        # Check shape
+        expected_shape = (3, len(self.x_test), 4, 4)  # (n_param_sets, n_points, n_params, n_params)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Check that results are finite
+        self.assertTrue(np.all(np.isfinite(result)))
+        
+        # Check consistency with single evaluation
+        single_result = self.function.vectorized_hessian(self.x_test, self.params.reshape(1, -1))
+        expected_single = self.function.hess(self.x_test)
+        np.testing.assert_array_almost_equal(single_result[0], expected_single)
+        
+        # Check symmetry for all Hessians
+        for param_set_idx in range(3):
+            for point_idx in range(len(self.x_test)):
+                hess = result[param_set_idx, point_idx]
+                np.testing.assert_array_almost_equal(hess, hess.T, decimal=10)
+
 # Import loss functions from the correct location
 from ligament_reconstructor.ligament_optimiser import loss, loss_jac, loss_hess
 
@@ -214,6 +290,114 @@ class LossOptimisation(unittest.TestCase):
         eigenvals = np.linalg.eigvals(hess)
         self.assertTrue(np.all(eigenvals >= -1e-10), 
                        f"Hessian is not PSD, eigenvalues: {eigenvals}")
+
+    def test_vectorized_loss_function(self):
+        """Test that the vectorized loss function works correctly."""
+        # Test with multiple parameter sets
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],  # Optimal parameters
+            [60, 1.06, 44, 0.05],  # Slightly different alpha
+            [65, 1.07, 44, 0.05],  # Different k
+            [60, 1.07, 45, 0.05]   # Different l_0
+        ])
+        
+        loss_vals = self.loss_func(params_array)
+        
+        # Check shape
+        self.assertEqual(loss_vals.shape, (4,))
+        
+        # First set should have zero loss (optimal parameters)
+        self.assertAlmostEqual(loss_vals[0], 0, places=10)
+        
+        # Other sets should have positive loss
+        self.assertTrue(np.all(loss_vals[1:] > 0))
+        
+        # Check that results are finite
+        self.assertTrue(np.all(np.isfinite(loss_vals)))
+
+    def test_vectorized_loss_jac(self):
+        """Test that the vectorized loss Jacobian works correctly."""
+        # Test with multiple parameter sets
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],  # Optimal parameters
+            [60, 1.06, 44, 0.05],  # Slightly different alpha
+            [65, 1.07, 44, 0.05]   # Different k
+        ])
+        
+        loss_jac_vals = self.loss_jac_func(params_array)
+        
+        # Check shape
+        expected_shape = (3, 4)  # (n_param_sets, n_params)
+        self.assertEqual(loss_jac_vals.shape, expected_shape)
+        
+        # First set should have zero gradient (optimal parameters)
+        np.testing.assert_array_almost_equal(loss_jac_vals[0], np.zeros(4), decimal=10)
+        
+        # Other sets should have non-zero gradients
+        self.assertTrue(np.any(loss_jac_vals[1:] != 0))
+        
+        # Check that results are finite
+        self.assertTrue(np.all(np.isfinite(loss_jac_vals)))
+
+    def test_vectorized_loss_hess(self):
+        """Test that the vectorized loss Hessian works correctly."""
+        # Test with multiple parameter sets
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],  # Optimal parameters
+            [60, 1.06, 44, 0.05],  # Slightly different alpha
+            [65, 1.07, 44, 0.05]   # Different k
+        ])
+        
+        loss_hess_vals = self.loss_hess_func(params_array)
+        
+        # Check shape
+        expected_shape = (3, 4, 4)  # (n_param_sets, n_params, n_params)
+        self.assertEqual(loss_hess_vals.shape, expected_shape)
+        
+        # Check that all Hessians are symmetric
+        for i in range(3):
+            hess = loss_hess_vals[i]
+            np.testing.assert_array_almost_equal(hess, hess.T, decimal=10)
+        
+        # Check that the optimal Hessian (first one) is positive semi-definite
+        optimal_hess = loss_hess_vals[0]
+        eigenvals = np.linalg.eigvals(optimal_hess)
+        self.assertTrue(np.all(eigenvals >= -1e-10), 
+                       f"Optimal Hessian is not PSD, eigenvalues: {eigenvals}")
+        
+        # Check that all Hessians are symmetric (this should always be true)
+        for i in range(3):
+            hess = loss_hess_vals[i]
+            eigenvals = np.linalg.eigvals(hess)
+            # Non-optimal Hessians can have negative eigenvalues, but should still be symmetric
+            self.assertTrue(np.allclose(hess, hess.T, atol=1e-10), 
+                           f"Hessian {i} is not symmetric")
+        
+        # Check that results are finite
+        self.assertTrue(np.all(np.isfinite(loss_hess_vals)))
+
+    def test_consistency_between_single_and_vectorized(self):
+        """Test consistency between single parameter and vectorized versions."""
+        # Single parameter set
+        params_single = np.array([60, 1.07, 44, 0.05])
+        
+        # Same parameters in vectorized format
+        params_vectorized = params_single.reshape(1, -1)
+        
+        # Test loss function
+        loss_single = self.loss_func(params_single)
+        loss_vectorized = self.loss_func(params_vectorized)
+        self.assertAlmostEqual(loss_single, loss_vectorized[0], places=10)
+        
+        # Test loss Jacobian
+        jac_single = self.loss_jac_func(params_single)
+        jac_vectorized = self.loss_jac_func(params_vectorized)
+        np.testing.assert_array_almost_equal(jac_single, jac_vectorized[0], decimal=10)
+        
+        # Test loss Hessian
+        hess_single = self.loss_hess_func(params_single)
+        hess_vectorized = self.loss_hess_func(params_vectorized)
+        np.testing.assert_array_almost_equal(hess_single, hess_vectorized[0], decimal=10)
 
 
 class TestFunctionIntegration(unittest.TestCase):

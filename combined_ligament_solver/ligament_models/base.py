@@ -62,8 +62,12 @@ class LigamentFunction:
         else:
             self.params = params
 
-    def __call__(self, x: np.ndarray):
-        result = self.function(x, self.params)
+    def __call__(self, x: np.ndarray, use_cached_function: bool = True):
+        if use_cached_function:
+            result = self.function(x, self.params)
+        else:
+            result = self.sympy_implementation()
+            result = result.subs(x, x)
         return result
 
     def sympy_implementation(self):
@@ -170,6 +174,7 @@ class LigamentFunction:
             Function values, shape (n_param_sets, n_points)
         """
         # Use numpy's apply_along_axis for better performance than Python loops
+
         def eval_single_params(params):
             return self._cached_func(x, *params)
         

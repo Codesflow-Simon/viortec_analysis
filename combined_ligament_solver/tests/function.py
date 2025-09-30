@@ -261,8 +261,8 @@ class LossOptimisation(unittest.TestCase):
         self.x_data = np.linspace(20, 50, 5)
         self.y_data = self.function(self.x_data)
         self.loss_func = lambda params: loss(params, self.x_data, self.y_data, self.function)
-        self.loss_jac_func = lambda params: loss_jac(params, self.x_data, self.y_data, self.function, self.function.jac)
-        self.loss_hess_func = lambda params: loss_hess(params, self.x_data, self.y_data, self.function, self.function.jac, self.function.hess)
+        self.loss_jac_func = lambda params: loss_jac(params, self.x_data, self.y_data, self.function)
+        self.loss_hess_func = lambda params: loss_hess(params, self.x_data, self.y_data, self.function)
 
     def test_loss_function(self):
         """Test that the loss function is correct."""
@@ -428,6 +428,264 @@ class TestFunctionIntegration(unittest.TestCase):
         result_call = blankevoort_func(x_test)
         result_function = blankevoort_func.function(x_test, blankevoort_params)
         np.testing.assert_array_almost_equal(result_call, result_function)
+
+
+class TestBroadcastingBehavior(unittest.TestCase):
+    """Test broadcasting behavior with different shapes of x and params."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.base_params = np.array([60, 1.07, 44, 0.05])
+        self.function = BlankevoortFunction(self.base_params)
+    
+    def test_scalar_x_vectorized_params(self):
+        """Test broadcasting with scalar x and multiple parameter sets."""
+        x_scalar = np.array([30.0])  # Convert to array for vectorized methods
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],
+            [70, 1.07, 44, 0.05],
+            [60, 1.17, 44, 0.05]
+        ])
+        
+        # Test vectorized function
+        result = self.function.vectorized_function(x_scalar, params_array)
+        expected_shape = (3, 1)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Test vectorized Jacobian
+        jac_result = self.function.vectorized_jacobian(x_scalar, params_array)
+        expected_jac_shape = (3, 4, 1)
+        self.assertEqual(jac_result.shape, expected_jac_shape)
+        
+        # Test vectorized Hessian
+        hess_result = self.function.vectorized_hessian(x_scalar, params_array)
+        expected_hess_shape = (3, 1, 4, 4)
+        self.assertEqual(hess_result.shape, expected_hess_shape)
+        
+        # Check consistency with single evaluations
+        for i in range(3):
+            single_result = self.function.function(x_scalar[0], params_array[i])
+            self.assertAlmostEqual(result[i, 0], single_result, places=10)
+    
+    def test_vector_x_scalar_params(self):
+        """Test broadcasting with vector x and single parameter set."""
+        x_vector = np.array([20, 30, 40, 50])
+        params_scalar = np.array([60, 1.07, 44, 0.05])
+        
+        # Test vectorized function
+        result = self.function.vectorized_function(x_vector, params_scalar.reshape(1, -1))
+        expected_shape = (1, 4)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Test vectorized Jacobian
+        jac_result = self.function.vectorized_jacobian(x_vector, params_scalar.reshape(1, -1))
+        expected_jac_shape = (1, 4, 4)
+        self.assertEqual(jac_result.shape, expected_jac_shape)
+        
+        # Test vectorized Hessian
+        hess_result = self.function.vectorized_hessian(x_vector, params_scalar.reshape(1, -1))
+        expected_hess_shape = (1, 4, 4, 4)
+        self.assertEqual(hess_result.shape, expected_hess_shape)
+        
+        # Check consistency with single evaluation
+        single_result = self.function.function(x_vector, params_scalar)
+        np.testing.assert_array_almost_equal(result[0], single_result, decimal=10)
+    
+    def test_vector_x_vectorized_params(self):
+        """Test broadcasting with vector x and multiple parameter sets."""
+        x_vector = np.array([20, 30, 40, 50])
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],
+            [70, 1.07, 44, 0.05],
+            [60, 1.17, 44, 0.05],
+            [60, 1.07, 54, 0.05]
+        ])
+        
+        # Test vectorized function
+        result = self.function.vectorized_function(x_vector, params_array)
+        expected_shape = (4, 4)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Test vectorized Jacobian
+        jac_result = self.function.vectorized_jacobian(x_vector, params_array)
+        expected_jac_shape = (4, 4, 4)
+        self.assertEqual(jac_result.shape, expected_jac_shape)
+        
+        # Test vectorized Hessian
+        hess_result = self.function.vectorized_hessian(x_vector, params_array)
+        expected_hess_shape = (4, 4, 4, 4)
+        self.assertEqual(hess_result.shape, expected_hess_shape)
+        
+        # Check consistency with single evaluations
+        for i in range(4):
+            single_result = self.function.function(x_vector, params_array[i])
+            np.testing.assert_array_almost_equal(result[i], single_result, decimal=10)
+    
+    def test_single_point_multiple_params(self):
+        """Test broadcasting with single x point and many parameter sets."""
+        x_single = np.array([35.0])
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],
+            [70, 1.07, 44, 0.05],
+            [60, 1.17, 44, 0.05],
+            [60, 1.07, 54, 0.05],
+            [65, 1.12, 49, 0.075]
+        ])
+        
+        # Test vectorized function
+        result = self.function.vectorized_function(x_single, params_array)
+        expected_shape = (5, 1)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Test vectorized Jacobian
+        jac_result = self.function.vectorized_jacobian(x_single, params_array)
+        expected_jac_shape = (5, 4, 1)
+        self.assertEqual(jac_result.shape, expected_jac_shape)
+        
+        # Test vectorized Hessian
+        hess_result = self.function.vectorized_hessian(x_single, params_array)
+        expected_hess_shape = (5, 1, 4, 4)
+        self.assertEqual(hess_result.shape, expected_hess_shape)
+        
+        # Check consistency with single evaluations
+        for i in range(5):
+            single_result = self.function.function(x_single, params_array[i])
+            np.testing.assert_array_almost_equal(result[i], single_result, decimal=10)
+    
+    def test_edge_cases_broadcasting(self):
+        """Test edge cases in broadcasting behavior."""
+        # Test with empty x array - this should work but return empty results
+        x_empty = np.array([])
+        params_array = np.array([[60, 1.07, 44, 0.05]])
+        
+        # Empty x should return empty results
+        result = self.function.vectorized_function(x_empty, params_array)
+        expected_shape = (1, 0)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Test with single parameter set as 1D array
+        x_vector = np.array([20, 30, 40])
+        params_1d = np.array([60, 1.07, 44, 0.05])
+        
+        # This should work by automatically reshaping
+        result = self.function.vectorized_function(x_vector, params_1d)
+        expected_shape = (1, 3)
+        self.assertEqual(result.shape, expected_shape)
+        
+        # Test with very large parameter arrays
+        x_small = np.array([30.0])
+        params_large = np.random.rand(100, 4) * 100  # 100 random parameter sets
+        
+        result = self.function.vectorized_function(x_small, params_large)
+        expected_shape = (100, 1)
+        self.assertEqual(result.shape, expected_shape)
+        self.assertTrue(np.all(np.isfinite(result)))
+    
+    def test_broadcasting_consistency_loss_functions(self):
+        """Test that loss functions handle broadcasting correctly."""
+        x_data = np.array([20, 30, 40, 50])
+        y_data = self.function(x_data)
+        
+        # Test with single parameter set
+        params_single = np.array([60, 1.07, 44, 0.05])
+        loss_single = loss(params_single, x_data, y_data, self.function)
+        
+        # Test with same parameters in vectorized format
+        params_vectorized = params_single.reshape(1, -1)
+        loss_vectorized = loss(params_vectorized, x_data, y_data, self.function)
+        
+        self.assertAlmostEqual(loss_single, loss_vectorized[0], places=10)
+        
+        # Test with multiple parameter sets
+        params_multiple = np.array([
+            [60, 1.07, 44, 0.05],
+            [70, 1.07, 44, 0.05],
+            [60, 1.17, 44, 0.05]
+        ])
+        loss_multiple = loss(params_multiple, x_data, y_data, self.function)
+        
+        expected_shape = (3,)
+        self.assertEqual(loss_multiple.shape, expected_shape)
+        
+        # First set should have zero loss (optimal parameters)
+        self.assertAlmostEqual(loss_multiple[0], 0, places=10)
+        
+        # Other sets should have positive loss
+        self.assertTrue(np.all(loss_multiple[1:] > 0))
+    
+    def test_broadcasting_with_different_x_lengths(self):
+        """Test broadcasting with different lengths of x arrays."""
+        params_array = np.array([
+            [60, 1.07, 44, 0.05],
+            [70, 1.07, 44, 0.05]
+        ])
+        
+        # Test with different x lengths
+        x_lengths = [1, 3, 5, 10]
+        
+        for length in x_lengths:
+            x_test = np.linspace(20, 50, length)
+            
+            # Test vectorized function
+            result = self.function.vectorized_function(x_test, params_array)
+            expected_shape = (2, length)
+            self.assertEqual(result.shape, expected_shape)
+            
+            # Test vectorized Jacobian
+            jac_result = self.function.vectorized_jacobian(x_test, params_array)
+            expected_jac_shape = (2, 4, length)
+            self.assertEqual(jac_result.shape, expected_jac_shape)
+            
+            # Test vectorized Hessian
+            hess_result = self.function.vectorized_hessian(x_test, params_array)
+            expected_hess_shape = (2, length, 4, 4)
+            self.assertEqual(hess_result.shape, expected_hess_shape)
+            
+            # Check that all results are finite
+            self.assertTrue(np.all(np.isfinite(result)))
+            self.assertTrue(np.all(np.isfinite(jac_result)))
+            self.assertTrue(np.all(np.isfinite(hess_result)))
+    
+    def test_scalar_vs_array_x_behavior(self):
+        """Test the difference between scalar and array x inputs."""
+        x_scalar = 30.0
+        x_array = np.array([30.0])
+        params = np.array([60, 1.07, 44, 0.05])
+        
+        # Test regular function methods with scalar x
+        func_scalar = self.function.function(x_scalar, params)
+        func_array = self.function.function(x_array, params)
+        
+        # Both should work and give the same result
+        self.assertAlmostEqual(func_scalar, func_array[0], places=10)
+        
+        # Test Jacobian with scalar x
+        jac_scalar = self.function.jac(x_scalar)
+        jac_array = self.function.jac(x_array)
+        
+        # Both should work and give the same result (but different shapes)
+        # jac_scalar has shape (4,) and jac_array has shape (4, 1)
+        np.testing.assert_array_almost_equal(jac_scalar, jac_array.flatten(), decimal=10)
+        
+        # Test Hessian with scalar x
+        hess_scalar = self.function.hess(x_scalar)
+        hess_array = self.function.hess(x_array)
+        
+        # Both should work and give the same result (but different shapes)
+        # hess_scalar has shape (4, 4) and hess_array has shape (1, 4, 4)
+        np.testing.assert_array_almost_equal(hess_scalar, hess_array[0], decimal=10)
+        
+        # Test vectorized methods - these handle both scalar and array x
+        params_array = params.reshape(1, -1)
+        
+        # This should work with array x
+        vec_func = self.function.vectorized_function(x_array, params_array)
+        self.assertEqual(vec_func.shape, (1, 1))
+        
+        # This should also work with scalar x (automatic conversion)
+        vec_func_auto = self.function.vectorized_function(x_scalar, params_array)
+        self.assertEqual(vec_func_auto.shape, (1,))
+        np.testing.assert_array_almost_equal(vec_func[0], vec_func_auto, decimal=10)
 
 
 if __name__ == '__main__':

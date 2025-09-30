@@ -1,0 +1,58 @@
+# Constraint sets for different ligament models
+# Each constraint set defines parameter bounds for optimization
+
+blankevoort_mcl:
+  parameters:
+    k: 0
+    alpha: 1
+    l_0: 2
+    f_ref: 3
+  constraints:
+    k:
+      type: between
+      lower: 10
+      upper: 50
+      description: "Stiffness parameter (N per mm)"
+    alpha:
+      type: between
+      lower: 0.02
+      upper: 0.12
+      description: "Transition length parameter"
+    l_0:
+      type: between
+      lower: 86.2
+      upper: 94.8
+      description: "Reference length (mm)"
+    f_ref:
+      type: between
+      lower: 0.0
+      upper: 700
+      description: "Reference force (strain)"
+
+blankevoort_lcl:
+  parameters:
+    k: 0
+    alpha: 1
+    l_0: 2
+    f_ref: 3
+  constraints:
+    k:
+      type: between
+      lower: 20
+      upper: 100
+      description: "Stiffness parameter (N per mm)"
+    alpha:
+      type: between
+      lower: 0.02
+      upper: 0.12
+      description: "Transition length parameter"
+    l_0:
+      type: between
+      lower: 57.4
+      upper: 63.1
+      description: "Reference length (mm)"
+    f_ref:
+      type: between
+      lower: 0.0
+      upper: 1200
+      description: "Reference force (strain)"

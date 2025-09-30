@@ -1,21 +1,34 @@
 data:
   x_noise: 0
-  y_noise: 5
+  y_noise: 1
+  sigma_noise: 1
   n_points: 200
   x_min: 0.20 # milimeter domain
   x_max: 0.30 
 
-blankevoort_mcl:
-    k: 60 # N per mm
+blankevoort_mcl: # Right side (Right leg)
+    k: 33.5 # N per mm
     alpha: 0.06 # Transition length, at 6% strain
-    l_0: 46 # mm
+    l_0: 90.2 #107 # mm
     f_ref: 0 # strain
 
+blankevoort_lcl: # Left side (right leg)
+  k: 42.8 # N per mm
+  alpha: 0.06 # Transition length, at 6% strain
+  l_0: 57.4 # 60 # mm
+  f_ref: 0 # strain
+
 mechanics:
-    femur_length: 500 # All lengths in mm
-    femur_perp: 100
-    tibia_perp: 100
-    tibia_para: 50
-    application_length: 200
+    left_length: 63.1
+    right_length: 94.8
+    femur_length: 50 # All lengths in mm, for visualization only
+    femur_perp: 47 # Width of the femur
+    tibia_perp: 47 # Needs to be the same as femur_perp
+    tibia_para: 44 # Should be exactly twice the larger ball radius?
+    application_length: 200 # Length of the application force
     theta: 0.1 #radians, theta_sym
+    ball_distance: 10 # Distance between the center of the joint and the ball center
+    ball_distance_2: 12 # Distance between the center of the joint and the other ball center
+    ball_radius_1: 22 # Radius of the left ball
+    ball_radius_2: 22
     app_Fx: app_Fx_sym

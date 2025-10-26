@@ -134,7 +134,6 @@ class KneeModel(AbstractModel):
         solutions = sympy.solve(equations_to_solve, unknowns)
 
         if self.log:
-            print(f"\nSolutions: {solutions}")
             print(f"Spring A elongation: {self.lig_springA.get_spring_length()}")
             print(f"Spring B elongation: {self.lig_springB.get_spring_length()}")
 

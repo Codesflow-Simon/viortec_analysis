@@ -291,14 +291,14 @@ class Visualiser2D:
 
             color = self._get_color_for_item(force_label if force_label in self.color_map else body_name) # Prefer force name for color if defined
             
-            # Use a much larger scale factor to make forces visible
-            fixed_scale = 0.1  # Increase scale to make vectors more visible
-            scaled_force_x = force_2d_vec_component[0] * fixed_scale
-            scaled_force_y = force_2d_vec_component[1] * fixed_scale
+            # Use the calculated or provided scale factor to make forces visible
+            scaled_force_x = force_2d_vec_component[0] * current_force_scale
+            scaled_force_y = force_2d_vec_component[1] * current_force_scale
             
             # Ensure arrow head is not too large for small vectors
-            head_width_val = max(0.005, 0.05 * np.linalg.norm([scaled_force_x, scaled_force_y]))
-            head_length_val = max(0.01, 0.1 * np.linalg.norm([scaled_force_x, scaled_force_y]))
+            # Increased values to make arrows more prominent and obvious
+            head_width_val = max(0.015, 0.12 * np.linalg.norm([scaled_force_x, scaled_force_y]))
+            head_length_val = max(0.025, 0.18 * np.linalg.norm([scaled_force_x, scaled_force_y]))
             
             legend_entry_key = f"{force_label}_force_{body_name}"
             plot_label_for_legend = None
@@ -310,7 +310,7 @@ class Visualiser2D:
                      scaled_force_x, scaled_force_y,
                      head_width=head_width_val, 
                      head_length=head_length_val, 
-                     fc=color, ec=color, label=plot_label_for_legend, zorder=3, length_includes_head=True)
+                     fc=color, ec=color, label=plot_label_for_legend, zorder=3, length_includes_head=True, linewidth=2.5)
             
             # Position the force magnitude label.
             # Add a small offset from the arrow head, with a minimum distance to avoid overlap on small arrows.

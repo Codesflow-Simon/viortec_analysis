@@ -2,11 +2,20 @@ from abc import ABC, abstractmethod
 import numpy as np
 from typing import Dict, Tuple, Optional, Any
 from src.ligament_models.constraints import ConstraintManager
-from src.ligament_models.transformations import batch_inv_constraint_transform, batch_constraint_transform, slide_domain_inv_constraint_transform, slide_to_standard_domain, slide_domain_constraint_transform
 import emcee
 from copy import deepcopy
 
-
+def assert_parameter_format(params: np.ndarray):
+    """
+    Assert that the parameters are in the correct format.
+    """
+    if not isinstance(params, np.ndarray):
+        raise ValueError(f"Parameters must be a numpy array, got  {type(params)}")
+    if not params.ndim == 1:
+        raise ValueError(f"Parameters must be a 1D array, got {params.ndim}")
+    if params.dtype != np.float64:
+        raise ValueError(f"Parameters must be a float64 array, got {params.dtype}")
+    
 
 class BaseSampler(ABC):
     """
@@ -39,23 +48,6 @@ class BaseSampler(ABC):
                func: Any,
                sigma_noise: float = 1e-3,
                **kwargs) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-        """
-        Generate samples from the posterior distribution.
-        
-        Args:
-            map_params: MAP estimate (optimal parameters in constrained space)
-            x_data: Input data points
-            y_data: Target data points
-            func: Function to evaluate
-            sigma_noise: Noise standard deviation
-            **kwargs: Additional method-specific parameters
-            
-        Returns:
-            cov_matrix: Covariance matrix (in constrained space)
-            std_params: Standard deviations of parameters (in constrained space)
-            samples: Parameter samples (in constrained space)
-            acceptance_rate: Acceptance rate (if applicable)
-        """
         pass
     
     def log_likelihood(self, params: np.ndarray, x_data: np.ndarray, 
@@ -73,14 +65,10 @@ class BaseSampler(ABC):
         Returns:
             log_likelihood: Log-likelihood value
         """
+        assert_parameter_format(params)
+
         try:
-            # Transform to constrained space
-            constrained_params = self._transform_to_constrained(params)
-            
-            # Get model predictions
-            y_pred = func.vectorized_function(x_data, constrained_params)
-            
-            # Check for invalid predictions
+            y_pred = func.vectorized_function(x_data, params)
             if not np.all(np.isfinite(y_pred)):
                 return -np.inf
             
@@ -97,26 +85,30 @@ class BaseSampler(ABC):
     
     def log_prior(self, params: np.ndarray) -> float:
         """
-        Compute log-prior function in unconstrained space.
+        Compute log-prior probability for parameters.
+        
+        Uses uniform priors within parameter constraints.
         
         Args:
             params: Parameter vector (in unconstrained space)
             
         Returns:
-            log_prior: Log-prior value
+            log_prior: Log-prior probability value
         """
-        # Basic check: parameters should be finite
-        for param in params:
-            if not np.isfinite(param):
+        # Check parameters are finite
+        assert_parameter_format(params)
+        if not np.all(np.isfinite(params)):
+            return -np.inf
+        
+        # Check all parameters are within bounds
+        constraints_list = self.constraint_manager.get_constraints_list()
+        for i, (lower, upper) in enumerate(constraints_list):
+            if not (lower <= params[i] <= upper):
                 return -np.inf
         
-        # Isotropic normal prior with mean 0 and std 100
-        # Log of N(0, 100^2) = -0.5 * (x^2 / 100^2) - log(100 * sqrt(2*pi))
-        # prior_std = 10
-        # log_prior_value = -0.5 * np.sum(params**2) / (prior_std**2) - len(params) * np.log(prior_std * np.sqrt(2 * np.pi))
-        log_prior_value = 1
-
-        return log_prior_value
+        # Uniform prior: log(1/volume) = -log(volume)
+        # For uniform priors, this is just a constant
+        return 0.0
     
     def log_probability(self, params: np.ndarray, x_data: np.ndarray, 
                        y_data: np.ndarray, func: Any, sigma_noise: float) -> float:
@@ -133,6 +125,8 @@ class BaseSampler(ABC):
         Returns:
             log_prob: Log-probability value
         """
+        assert_parameter_format(params)
+
         lp = self.log_prior(params)
         if not np.isfinite(lp):
             return -np.inf
@@ -140,50 +134,13 @@ class BaseSampler(ABC):
         ll = self.log_likelihood(params, x_data, y_data, func, sigma_noise)
         return lp + ll
     
-    def get_samples(self) -> Optional[np.ndarray]:
-        """Get the generated samples."""
-        return self.samples
-    
-    def get_covariance(self) -> Optional[np.ndarray]:
-        """Get the covariance matrix."""
-        return self.covariance_matrix
-    
-    def get_parameter_std(self) -> Optional[np.ndarray]:
-        """Get the parameter standard deviations."""
-        return self.parameter_std
-    
-    def get_acceptance_rate(self) -> Optional[float]:
-        """Get the acceptance rate (if applicable)."""
-        return self.acceptance_rate
-    
-    def get_convergence_metrics(self) -> Dict[str, Any]:
-        """Get convergence metrics for the sampling method."""
-        return self.convergence_metrics
-    
-    def estimate_noise_level(self, x_data: np.ndarray, y_data: np.ndarray, 
-                           map_params: Dict[str, float], func: Any) -> float:
-        """
-        Estimate noise level from residuals at MAP estimate.
-        
-        Args:
-            x_data: Input data points
-            y_data: Target data points
-            map_params: MAP estimate
-            func: Function to evaluate
-            
-        Returns:
-            sigma_noise: Estimated noise standard deviation
-        """
-        y_pred = np.array([func(x) for x in x_data])
-        residuals = y_data - y_pred
-        return np.std(residuals)
 
 class MCMCSampler(BaseSampler):
     """
     MCMC sampler using emcee for Bayesian inference.
     """
     
-    def __init__(self, constraint_manager=None, n_walkers=128, n_steps=310, n_burnin=300):
+    def __init__(self, constraint_manager=None, n_walkers=64, n_steps=350, n_burnin=300):
         """
         Initialize MCMC sampler.
         
@@ -197,89 +154,33 @@ class MCMCSampler(BaseSampler):
         self.n_walkers = n_walkers
         self.n_steps = n_steps
         self.n_burnin = n_burnin
-    
-    def log_prior(self, params: np.ndarray) -> float:
-        """
-        Compute log-prior probability for parameters.
-        
-        Uses uniform priors within parameter constraints.
-        
-        Args:
-            params: Parameter vector (in unconstrained space)
-            
-        Returns:
-            log_prior: Log-prior probability value
-        """
-        # Check parameters are finite
-        if not np.all(np.isfinite(params)):
-            return -np.inf
-        
-        # Transform to constrained space
-        try:
-            constrained_params = self._transform_to_constrained(params)
-        except:
-            return -np.inf
-        
-        # Check all parameters are within bounds
-        constraints_list = self.constraint_manager.get_constraints_list()
-        for i, (lower, upper) in enumerate(constraints_list):
-            if not (lower <= constrained_params[i] <= upper):
-                return -np.inf
-        
-        # Uniform prior: log(1/volume) = -log(volume)
-        # For uniform priors, this is just a constant
-        return 0.0
-    
-    def _transform_to_constrained(self, params: np.ndarray) -> np.ndarray:
-        """Helper method to transform parameters to constrained space."""
-        constrained_params = slide_domain_constraint_transform(
-            params, self.constraint_manager.get_constraints_list(), self.map_params
-        )
-        constrained_params = slide_to_standard_domain(
-            constrained_params, self.constraint_manager, self.map_params
-        )
-        return np.array(list(constrained_params.values()))
-    
+
     def initial_walkers(self, map_params, n_walkers, n_params, std=0.1):
-        """
-        Initialize walkers in unconstrained space around the MAP estimate.
-        """
+        """Initialize walkers in unconstrained space around the MAP estimate."""
         constraints_list = self.constraint_manager.get_constraints_list()
+        assert_parameter_format(map_params)
         
         if isinstance(map_params, dict):
             map_params = np.array(list(map_params.values()))
-        
-        # Create initial positions in constrained space
+            
         initial_positions = np.zeros((n_walkers, n_params))
         
-        # Parameter 0 (k): Gaussian around MAP with noise
+        # k parameter: Gaussian around MAP with noise, clipped to bounds
         initial_positions[:, 0] = np.clip(
             map_params[0] + np.random.normal(0, std * map_params[0], n_walkers),
             constraints_list[0][0], constraints_list[0][1]
         )
         
-        # Parameter 1 (alpha): Uniform within bounds
-        initial_positions[:, 1] = np.random.uniform(
-            constraints_list[1][0], constraints_list[1][1], n_walkers
-        )
-        
-        # Parameter 2 (l_0): Gaussian around MAP with noise
-        initial_positions[:, 2] = np.clip(
-            map_params[2] + np.random.normal(0, std * map_params[2], n_walkers),
-            constraints_list[2][0], constraints_list[2][1]
-        )
-        
-        # Parameter 3 (l_slide): Uniform within slide range
-        slide_range = constraints_list[2][1] - constraints_list[2][0]
-        initial_positions[:, 3] = np.random.uniform(-slide_range/2, slide_range/2, n_walkers)
-        
-        # Transform to unconstrained space
-        return np.array([
-            list(slide_domain_inv_constraint_transform(
-                pos, constraints_list, self.map_params
-            ).values()) for pos in initial_positions
-        ])
-    
+        # Other parameters: Uniform within bounds
+        for i in range(1, n_params):
+            initial_positions[:, i] = np.random.uniform(
+                constraints_list[i][0], constraints_list[i][1], n_walkers
+            )
+
+        assert_parameter_format(initial_positions[0])
+            
+        return initial_positions
+
     def initial_walkers_screened(self, map_params, n_walkers, n_params, std=0.1, 
                                 screen_percentage=0.1, x_data=None, y_data=None, func=None, sigma_noise=1e-3):
         """
@@ -347,8 +248,14 @@ class MCMCSampler(BaseSampler):
             mcmc_samples: All MCMC samples (in constrained space)
             acceptance_fraction: Acceptance fraction of the sampler
         """
+        if isinstance(map_params, dict):
+            param_names = list(map_params.keys())
+            map_params = np.array(list(map_params.copy().values()))
+        else:
+            map_params = map_params.copy()
 
-        self.map_params = map_params.copy()
+        self.map_params = map_params
+        assert_parameter_format(self.map_params)
 
         # Override default parameters if provided
         n_walkers = kwargs.get('n_walkers', self.n_walkers)
@@ -361,8 +268,8 @@ class MCMCSampler(BaseSampler):
         # Set up MCMC sampler with multiple move types
         moves = [
             emcee.moves.StretchMove(),  # Good for correlated parameters
-            emcee.moves.DEMove(),       # Escapes local maxima
-            emcee.moves.WalkMove(),     # Local exploration
+            # emcee.moves.DEMove(),       # Escapes local maxima
+            # emcee.moves.WalkMove(),     # Local exploration
         ]
         
         sampler = emcee.EnsembleSampler(
@@ -389,10 +296,7 @@ class MCMCSampler(BaseSampler):
         if kwargs.get('visualize_only', False):
             untransformed_walkers = []
             for pos in initial_positions:
-                pos = slide_domain_constraint_transform(pos, self.constraint_manager.get_constraints_list(), self.map_params)
-                pos = slide_to_standard_domain(pos, self.constraint_manager, self.map_params)
-                print(pos)
-                untransformed_walkers.append(np.array(list(pos.values())))
+                untransformed_walkers.append(pos)
             return None, None, untransformed_walkers, 1
     
         if random_state is not None:
@@ -402,13 +306,10 @@ class MCMCSampler(BaseSampler):
         sampler.run_mcmc(initial_positions, n_steps, progress=True)
         
         # Get samples after burn-in and transform to constrained space
-        samples_unconstrained = sampler.get_chain(discard=n_burnin, flat=True)
-        samples = self._transform_samples_to_constrained(samples_unconstrained)
-        
+        samples = sampler.get_chain(discard=n_burnin, flat=True)
         print(f"Valid samples shape: {samples.shape}")
         
         # Compute statistics
-        param_names = list(self.map_params.keys())
         mcmc_means = np.mean(samples, axis=0)
         print(f"Parameter means: {dict(zip(param_names, mcmc_means))}")
         
@@ -422,22 +323,4 @@ class MCMCSampler(BaseSampler):
         self.acceptance_rate = np.mean(sampler.acceptance_fraction)
         
         return cov_matrix, std_params, samples, self.acceptance_rate
-    
-    def _transform_samples_to_constrained(self, samples_unconstrained):
-        """Transform MCMC samples from unconstrained to constrained space."""
-        samples = []
-        constraints = self.constraint_manager.get_constraints_list()
-        
-        for sample in samples_unconstrained:
-            try:
-                sample_dict = slide_domain_constraint_transform(sample, constraints, self.map_params)
-                sample_dict = slide_to_standard_domain(sample_dict, self.constraint_manager, self.map_params)
-                
-                # Check if sample meets all constraints
-                if all(lower <= value <= upper for (lower, upper), value in zip(constraints, sample_dict.values())):
-                    samples.append(np.array(list(sample_dict.values())))
-            except:
-                continue  # Skip invalid samples
-                
-        return np.array(samples)
     

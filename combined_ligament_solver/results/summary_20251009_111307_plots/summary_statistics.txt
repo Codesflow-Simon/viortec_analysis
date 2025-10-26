@@ -1,0 +1,55 @@
+================================================================================
+SUMMARY STATISTICS
+================================================================================
+
+Total configurations: 25
+LCL strains: [np.float64(0.02), np.float64(0.04), np.float64(0.06), np.float64(0.08), np.float64(0.1)]
+MCL strains: [np.float64(0.02), np.float64(0.04), np.float64(0.06), np.float64(0.08), np.float64(0.1)]
+
+================================================================================
+PARAMETER ERRORS (Relative %)
+================================================================================
+
+K:
+  Mean error:   0.51%
+  Median error: 0.44%
+  Std error:    0.41%
+  Min error:    0.02%
+  Max error:    1.34%
+
+ALPHA:
+  Mean error:   14.13%
+  Median error: 8.64%
+  Std error:    13.99%
+  Min error:    0.49%
+  Max error:    49.27%
+
+L_0:
+  Mean error:   0.60%
+  Median error: 0.15%
+  Std error:    0.70%
+  Min error:    0.01%
+  Max error:    2.13%
+
+F_REF:
+  Mean error:   10.49%
+  Median error: 8.10%
+  Std error:    13.75%
+  Min error:    0.62%
+  Max error:    59.97%
+
+================================================================================
+MCMC ACCEPTANCE RATE
+================================================================================
+  Mean:   0.4997
+  Median: 0.5255
+  Min:    0.3473
+  Max:    0.5621
+
+================================================================================
+OPTIMIZATION PERFORMANCE
+================================================================================
+  Mean initial loss: 41395.26
+  Mean final loss:   182.33
+  Mean reduction:    41212.93
+  Mean reduction %:  99.1%

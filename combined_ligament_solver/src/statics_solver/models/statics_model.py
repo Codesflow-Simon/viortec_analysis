@@ -149,21 +149,23 @@ class KneeModel(AbstractModel):
         solutions['lig_springA_force'] = self.lig_springA.get_force_on_point1()
         solutions['lig_springB_force'] = self.lig_springB.get_force_on_point1()
 
-        solutions['applied_force'] = self.applied_force.get_force()
-        solutions['constraint_force'] = self.constraint_force.get_force()
+        solutions['applied_force'] = self.applied_force
+        solutions['constraint_force'] = self.constraint_force
+
+        print(f"Solutions: {solutions}")
         
         return solutions
     
     def plot_model(self, show_forces=False):
         vis = Visualiser2D(self.world_frame)
-        vis.add_point(self.knee_point)
+        vis.add_point(self.knee_point, label="Knee origin")
         vis.add_point(self.hip_point, label="Hip")
 
-        vis.add_point(self.lig_top_pointA, label="LigTopA")
-        vis.add_point(self.lig_top_pointB, label="LigTopB")
-        vis.add_point(self.lig_bottom_pointA, label="LigBottomA")
-        vis.add_point(self.lig_bottom_pointB, label="LigBottomB")
-        vis.add_point(self.application_point, label="Application")
+        vis.add_point(self.lig_top_pointA, label="Lateral")
+        vis.add_point(self.lig_top_pointB, label="Medial")
+        vis.add_point(self.lig_bottom_pointA, label=" ")
+        vis.add_point(self.lig_bottom_pointB, label=" ")
+        vis.add_point(self.application_point, label=" ")
 
         vis.add_circle(self.joint_ball_A, self.ball_radius_1)
         vis.add_circle(self.joint_ball_B, self.ball_radius_2)

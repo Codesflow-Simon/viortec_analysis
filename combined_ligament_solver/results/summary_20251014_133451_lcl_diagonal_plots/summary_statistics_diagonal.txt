@@ -1,0 +1,90 @@
+================================================================================
+SUMMARY STATISTICS (Diagonal Cases: MCL Strain = LCL Strain)
+================================================================================
+
+Total configurations: 5
+Strain values: [np.float64(0.02), np.float64(0.04), np.float64(0.06), np.float64(0.08), np.float64(0.1)]
+
+================================================================================
+PARAMETER ERRORS (Relative %)
+================================================================================
+
+K:
+  Mean error:   1.71%
+  Median error: 1.80%
+  Std error:    1.12%
+  Min error:    0.27%
+  Max error:    2.97%
+
+ALPHA:
+  Mean error:   5.38%
+  Median error: 2.69%
+  Std error:    6.61%
+  Min error:    0.96%
+  Max error:    15.16%
+
+L_0:
+  Mean error:   0.32%
+  Median error: 0.26%
+  Std error:    0.32%
+  Min error:    0.05%
+  Max error:    0.72%
+
+F_REF:
+  Mean error:   6.42%
+  Median error: 4.66%
+  Std error:    5.79%
+  Min error:    1.68%
+  Max error:    14.67%
+
+================================================================================
+MCMC ACCEPTANCE RATE
+================================================================================
+  Mean:   0.4482
+  Median: 0.4416
+  Min:    0.3830
+  Max:    0.5267
+
+================================================================================
+OPTIMIZATION PERFORMANCE
+================================================================================
+  Mean initial loss: 11450.05
+  Mean final loss:   68.90
+  Mean reduction:    11381.16
+  Mean reduction %:  98.3%
+
+================================================================================
+COVARIANCE METRICS (OVERALL UNCERTAINTY - Not Scale Invariant)
+================================================================================
+  Covariance Determinant (geometric mean): nan
+  Covariance Trace (mean):                 nan
+  Covariance Trace (median):               nan
+  Covariance Trace (min):                  nan
+  Covariance Trace (max):                  nan
+
+================================================================================
+NORMALIZED UNCERTAINTY METRICS (Scale Invariant)
+================================================================================
+  Normalized Trace Σ(CV²) (mean):          nan
+  Normalized Trace Σ(CV²) (median):        nan
+  Normalized Trace Σ(CV²) (min):           nan
+  Normalized Trace Σ(CV²) (max):           nan
+  Average Coefficient of Variation (mean): nan
+  Average Coefficient of Variation (min):  nan
+  Average Coefficient of Variation (max):  nan
+
+================================================================================
+GROUND TRUTH LOG-LIKELIHOOD (KDE)
+================================================================================
+  Mean:   3.579
+  Median: 3.771
+  Min:    0.492
+  Max:    6.282
+
+================================================================================
+GROUND TRUTH LOG-PROBABILITY (POSTERIOR)
+================================================================================
+  Mean:   -21.736
+  Median: -22.021
+  Min:    -34.296
+  Max:    -8.605

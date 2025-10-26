@@ -1,0 +1,79 @@
+================================================================================
+SUMMARY STATISTICS (Diagonal Cases: MCL Strain = LCL Strain)
+================================================================================
+
+Total configurations: 5
+Strain values: [np.float64(0.02), np.float64(0.04), np.float64(0.06), np.float64(0.08), np.float64(0.1)]
+
+================================================================================
+PARAMETER ERRORS (Relative %)
+================================================================================
+
+K:
+  Mean error:   0.86%
+  Median error: 0.87%
+  Std error:    0.42%
+  Min error:    0.24%
+  Max error:    1.41%
+
+ALPHA:
+  Mean error:   14.45%
+  Median error: 9.34%
+  Std error:    12.60%
+  Min error:    3.48%
+  Max error:    29.36%
+
+L_0:
+  Mean error:   0.55%
+  Median error: 0.13%
+  Std error:    0.92%
+  Min error:    0.04%
+  Max error:    2.19%
+
+F_REF:
+  Mean error:   8.24%
+  Median error: 3.14%
+  Std error:    9.46%
+  Min error:    0.36%
+  Max error:    21.23%
+
+================================================================================
+MCMC ACCEPTANCE RATE
+================================================================================
+  Mean:   0.4648
+  Median: 0.4652
+  Min:    0.3982
+  Max:    0.5458
+
+================================================================================
+OPTIMIZATION PERFORMANCE
+================================================================================
+  Mean initial loss: 36182.90
+  Mean final loss:   64.60
+  Mean reduction:    36118.29
+  Mean reduction %:  98.2%
+
+================================================================================
+COVARIANCE METRICS (OVERALL UNCERTAINTY)
+================================================================================
+  Covariance Determinant (geometric mean): 3.165e-05
+  Covariance Trace (mean):                 7.147e+02
+  Covariance Trace (median):               3.479e+02
+  Covariance Trace (min):                  1.684e-01
+  Covariance Trace (max):                  1.766e+03
+
+  Normalized Uncertainty (SCALE-INVARIANT):
+    Mean:   0.0821
+    Median: 0.1265
+    Min:    0.0017
+    Max:    0.1431
+
+================================================================================
+GROUND TRUTH LOG-LIKELIHOOD (KDE)
+================================================================================
+  Not available in data
+
+================================================================================
+GROUND TRUTH LOG-PROBABILITY (POSTERIOR)
+================================================================================
+  Not available in data

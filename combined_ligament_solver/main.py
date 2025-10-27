@@ -2,7 +2,7 @@ from src.statics_solver.models.statics_model import KneeModel
 import yaml
 from matplotlib import pyplot as plt
 import numpy as np
-from src.ligament_reconstructor.ligament_optimiser import reconstruct_ligament
+from src.ligament_reconstructor.ligament_optimiser import reconstruct_ligament, least_squares_optimize_complete_model
 from src.ligament_reconstructor.utils import get_params_from_config
 from src.ligament_models.blankevoort import BlankevoortFunction
 import json
@@ -23,22 +23,43 @@ def analyse_data(config, data, constraint_manager):
     pre_compute_lcl_lengths = data['length_known_a']
     pre_compute_mcl_lengths = data['length_known_b']
 
+    # Run least squares optimization first
+    print("=" * 50)
+    print("RUNNING LEAST SQUARES OPTIMIZATION")
+    print("=" * 50)
+    
+    ls_result = least_squares_optimize_complete_model(
+        thetas, applied_forces, pre_compute_lcl_lengths, pre_compute_mcl_lengths,
+        constraint_manager, knee_config, sigma_noise=1e3
+    )
+    
+    print(f"Least squares RMSE: {ls_result['rmse']:.2f}")
+    print(f"Least squares MAE: {ls_result['mae']:.2f}")
+    print(f"MCL parameters: {ls_result['mcl_params']}")
+    print(f"LCL parameters: {ls_result['lcl_params']}")
+    
+    # Run MCMC sampling
+    print("\n" + "=" * 50)
+    print("RUNNING MCMC SAMPLING")
+    print("=" * 50)
+    
     sampler = CompleteMCMCSampler(knee_config, constraint_manager)
     cov_matrix, std_params, samples, acceptance_rate = sampler.sample(thetas, applied_forces, lcl_lengths=pre_compute_lcl_lengths, 
-        mcl_lengths=pre_compute_mcl_lengths, use_screening=True, screen_percentage=0.1, sigma_noise=1e2)
+        mcl_lengths=pre_compute_mcl_lengths, use_screening=True, screen_percentage=0.1, sigma_noise=1e3)
     
     print(f"MCMC completed with {len(samples)} samples")
     print(f"Acceptance rate: {acceptance_rate:.3f}")
     
     # Visualize results
-    visualize_ligament_curves(config, samples, data)
-    visualize_theta_force_curves(config, samples, data)
+    visualize_ligament_curves(config, samples, data, ls_result)
+    visualize_theta_force_curves(config, samples, data, ls_result)
     
     return {
         'cov_matrix': cov_matrix,
         'std_params': std_params,
         'samples': samples,
-        'acceptance_rate': acceptance_rate
+        'acceptance_rate': acceptance_rate,
+        'least_squares_result': ls_result
     }
 
 def main(config, constraints_config):
@@ -126,8 +147,8 @@ def collect_data(config):
     
     return data_lists
 
-def visualize_ligament_curves(config, samples, data):
-    """Plot MCL and LCL tension vs elongation curves for ground truth, MCMC samples, and mean."""
+def visualize_ligament_curves(config, samples, data, ls_result=None):
+    """Plot MCL and LCL tension vs elongation curves for ground truth, MCMC samples, mean, and least squares."""
     
     # Ground truth parameters
     ground_truth_lcl = config['blankevoort_lcl']
@@ -173,8 +194,8 @@ def visualize_ligament_curves(config, samples, data):
         lcl_params = sample[4:]  # Last 4 parameters are LCL
         mcl_params = sample[:4]  # First 4 parameters are MCL
         
-        lcl_func = BlankevoortFunction(lcl_params, compile_derivatives=False)
-        mcl_func = BlankevoortFunction(mcl_params, compile_derivatives=False)
+        lcl_func = BlankevoortFunction(lcl_params, )
+        mcl_func = BlankevoortFunction(mcl_params, )
         
         sample_lcl_tensions.append(lcl_func(lcl_elongation_range))
         sample_mcl_tensions.append(mcl_func(mcl_elongation_range))
@@ -183,11 +204,18 @@ def visualize_ligament_curves(config, samples, data):
     mean_lcl_params = np.mean(samples[:, 4:], axis=0)
     mean_mcl_params = np.mean(samples[:, :4], axis=0)
     
-    mean_lcl_func = BlankevoortFunction(mean_lcl_params, compile_derivatives=False)
-    mean_mcl_func = BlankevoortFunction(mean_mcl_params, compile_derivatives=False)
+    mean_lcl_func = BlankevoortFunction(mean_lcl_params, )
+    mean_mcl_func = BlankevoortFunction(mean_mcl_params, )
     
     mean_lcl_tension = mean_lcl_func(lcl_elongation_range)
     mean_mcl_tension = mean_mcl_func(mcl_elongation_range)
+    
+    # Calculate least squares curves if available
+    if ls_result is not None:
+        ls_lcl_func = ls_result['lcl_function']
+        ls_mcl_func = ls_result['mcl_function']
+        ls_lcl_tension = ls_lcl_func(lcl_elongation_range)
+        ls_mcl_tension = ls_mcl_func(mcl_elongation_range)
     
     # Create plots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
@@ -195,6 +223,9 @@ def visualize_ligament_curves(config, samples, data):
     # LCL plot
     ax1.plot(lcl_elongation_range, gt_lcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
     ax1.plot(lcl_elongation_range, mean_lcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
+    
+    if ls_result is not None:
+        ax1.plot(lcl_elongation_range, ls_lcl_tension, 'g-', linewidth=2, label='Least Squares', alpha=0.8)
     
     for i, tension in enumerate(sample_lcl_tensions[:50]):  # Show first 50 samples
         ax1.plot(lcl_elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
@@ -213,6 +244,9 @@ def visualize_ligament_curves(config, samples, data):
     ax2.plot(mcl_elongation_range, gt_mcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
     ax2.plot(mcl_elongation_range, mean_mcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
     
+    if ls_result is not None:
+        ax2.plot(mcl_elongation_range, ls_mcl_tension, 'g-', linewidth=2, label='Least Squares', alpha=0.8)
+    
     for i, tension in enumerate(sample_mcl_tensions[:50]):  # Show first 50 samples
         ax2.plot(mcl_elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
     
@@ -230,8 +264,8 @@ def visualize_ligament_curves(config, samples, data):
     plt.savefig('ligament_curves.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-def visualize_theta_force_curves(config, samples, data):
-    """Plot theta vs applied force with MCMC samples."""
+def visualize_theta_force_curves(config, samples, data, ls_result=None):
+    """Plot theta vs applied force with MCMC samples and least squares results."""
     
     # Ground truth data
     all_thetas = np.array(data['thetas'])
@@ -245,8 +279,8 @@ def visualize_theta_force_curves(config, samples, data):
         lcl_params = sample[4:]  # Last 4 parameters are LCL
         mcl_params = sample[:4]  # First 4 parameters are MCL
         
-        lcl_func = BlankevoortFunction(lcl_params, compile_derivatives=False)
-        mcl_func = BlankevoortFunction(mcl_params, compile_derivatives=False)
+        lcl_func = BlankevoortFunction(lcl_params, )
+        mcl_func = BlankevoortFunction(mcl_params, )
         
         # Create model with sample parameters
         
@@ -263,8 +297,8 @@ def visualize_theta_force_curves(config, samples, data):
     mean_lcl_params = np.mean(samples[:, 4:], axis=0)
     mean_mcl_params = np.mean(samples[:, :4], axis=0)
     
-    mean_lcl_func = BlankevoortFunction(mean_lcl_params, compile_derivatives=False)
-    mean_mcl_func = BlankevoortFunction(mean_mcl_params, compile_derivatives=False)
+    mean_lcl_func = BlankevoortFunction(mean_lcl_params, )
+    mean_mcl_func = BlankevoortFunction(mean_mcl_params, )
     
     mean_forces = []
     for theta in all_thetas:
@@ -272,6 +306,12 @@ def visualize_theta_force_curves(config, samples, data):
         mean_model = KneeModel(knee_config, mean_lcl_func, mean_mcl_func, log=False)
         solutions = mean_model.solve()
         mean_forces.append(float(solutions['applied_force'].get_force().norm()))
+    
+    # Calculate least squares prediction if available
+    if ls_result is not None:
+        ls_forces = ls_result['predicted_forces']
+    else:
+        ls_forces = None
     
     # Create plot
     plt.figure(figsize=(12, 8))
@@ -283,6 +323,11 @@ def visualize_theta_force_curves(config, samples, data):
     # Plot mean prediction as points only
     plt.scatter(np.degrees(all_thetas), mean_forces, color='red', s=30, 
                 label='Mean MCMC Prediction', alpha=0.8, zorder=4)
+    
+    # Plot least squares prediction if available
+    if ls_forces is not None:
+        plt.scatter(np.degrees(all_thetas), ls_forces, color='green', s=30, 
+                    label='Least Squares Prediction', alpha=0.8, zorder=3)
     
     # Plot sample predictions as points only
     for i, forces in enumerate(sample_predictions[:100]):  # Show first 100 samples

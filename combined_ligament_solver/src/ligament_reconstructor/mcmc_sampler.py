@@ -139,7 +139,7 @@ class CompleteMCMCSampler(BaseSampler):
     Complete MCMC sampler using emcee for Bayesian inference.
     """
     
-    def __init__(self, knee_config, constraint_manager, n_walkers=128, n_steps=350, n_burnin=300):
+    def __init__(self, knee_config, constraint_manager, n_walkers=64, n_steps=350, n_burnin=300):
         super().__init__(constraint_manager)
         self.n_walkers = n_walkers
         self.n_steps = n_steps
@@ -153,8 +153,8 @@ class CompleteMCMCSampler(BaseSampler):
         # Use dummy parameters for initial model creation
         dummy_mcl_params = np.array([30.0, 0.06, 90.0, 0.0])
         dummy_lcl_params = np.array([40.0, 0.06, 60.0, 0.0])
-        dummy_lig_left = BlankevoortFunction(dummy_lcl_params, compile_derivatives=False)
-        dummy_lig_right = BlankevoortFunction(dummy_mcl_params, compile_derivatives=False)
+        dummy_lig_left = BlankevoortFunction(dummy_lcl_params)
+        dummy_lig_right = BlankevoortFunction(dummy_mcl_params)
         
         # Build model once with dummy parameters
         self._cached_knee_model = KneeModel(self.knee_config, dummy_lig_left, dummy_lig_right, log=False)
@@ -198,7 +198,7 @@ class CompleteMCMCSampler(BaseSampler):
         return total_log_prob
 
     def initial_walkers(self, n_walkers, std=0.1):
-        """Initialize walkers in unconstrained space around the MAP estimate."""
+        """Initialize walkers in unconstrained space around reasonable starting values."""
         mcl_constraints_manager = self.constraint_manager[0]
         lcl_constraints_manager = self.constraint_manager[1]
 
@@ -211,6 +211,9 @@ class CompleteMCMCSampler(BaseSampler):
         total_params = n_mcl_params + n_lcl_params
         
         initial_positions = np.zeros((n_walkers, total_params))
+
+        mcl_start_values = [33.5, 0.06, 90.0, 0.0]  # From config.yaml
+        lcl_start_values = [42.8, 0.06, 60.0, 0.0]  # From config.yaml
         
         # Initialize walkers for MCL parameters
         for i in range(n_mcl_params):
@@ -219,8 +222,15 @@ class CompleteMCMCSampler(BaseSampler):
                 # Fixed parameter - set all walkers to the same value
                 initial_positions[:, i] = lower
             else:
-                # Variable parameter - sample uniformly
-                initial_positions[:, i] = np.random.uniform(lower, upper, n_walkers)
+                # Variable parameter - start near reasonable values with small noise
+                start_val = mcl_start_values[i]
+                # Ensure start value is within bounds
+                start_val = np.clip(start_val, lower, upper)
+                # Add small random noise around the starting value
+                noise_scale = min(std * (upper - lower), 0.01 * (upper - lower))  # Reduced from 0.1 to 0.01
+                initial_positions[:, i] = start_val + np.random.normal(0, noise_scale, n_walkers)
+                # Clip to bounds
+                initial_positions[:, i] = np.clip(initial_positions[:, i], lower, upper)
         
         # Initialize walkers for LCL parameters
         for i in range(n_lcl_params):
@@ -310,8 +320,8 @@ class CompleteMCMCSampler(BaseSampler):
         # Set up MCMC sampler with multiple move types
         moves = [
             emcee.moves.StretchMove(),  # Good for correlated parameters
-            # emcee.moves.DEMove(),       # Escapes local maxima
-            # emcee.moves.WalkMove(),     # Local exploration
+            emcee.moves.DEMove(),       # Escapes local maxima
+            emcee.moves.WalkMove(),     # Local exploration
         ]
         
         sampler = emcee.EnsembleSampler(
@@ -341,26 +351,15 @@ class CompleteMCMCSampler(BaseSampler):
         if random_state is not None:
             np.random.seed(random_state)
         
-        # Debug: Check initial positions
-        print(f"Initial positions shape: {initial_positions.shape}")
-        print(f"Initial positions mean: {np.mean(initial_positions, axis=0)}")
-        print(f"Initial positions std: {np.std(initial_positions, axis=0)}")
-        print(f"Initial positions min: {np.min(initial_positions, axis=0)}")
-        print(f"Initial positions max: {np.max(initial_positions, axis=0)}")
-        
         # Check for any columns with zero variance (all identical values)
         zero_var_cols = np.where(np.std(initial_positions, axis=0) == 0)[0]
         if len(zero_var_cols) > 0:
-            print(f"Warning: Columns with zero variance: {zero_var_cols}")
-            print(f"These columns have identical values: {initial_positions[0, zero_var_cols]}")
-            
             # Add small random noise to fixed parameters to ensure linear independence
             for col in zero_var_cols:
                 fixed_value = initial_positions[0, col]
                 # Add very small noise (1e-10) to make walkers linearly independent
                 noise = np.random.normal(0, 1e-10, initial_positions.shape[0])
                 initial_positions[:, col] = fixed_value + noise
-                print(f"Added small noise to column {col} (fixed parameter)")
         
         # Run MCMC
         sampler.run_mcmc(initial_positions, n_steps, progress=True)
@@ -405,19 +404,10 @@ class CompleteMCMCSampler(BaseSampler):
         if not np.all(np.isfinite(mcl_params)) or not np.all(np.isfinite(lcl_params)):
             return -np.inf
         
-        # Reuse cached knee model and update only ligament parameters
-        # This is MUCH faster than creating a new KneeModel each time
-        if not hasattr(self, '_cached_knee_model'):
-            # Fallback: create model if not cached (shouldn't happen)
-            from src.ligament_models.blankevoort import BlankevoortFunction
-            from src.statics_solver.models.statics_model import KneeModel
-            lig_left = BlankevoortFunction(lcl_params, compile_derivatives=False)
-            lig_right = BlankevoortFunction(mcl_params, compile_derivatives=False)
-            knee_model = KneeModel(self.knee_config, lig_left, lig_right, log=False)
-        else:
-            # Use cached model and update parameters (fast!)
-            knee_model = self._cached_knee_model
-            knee_model.update_ligament_parameters(mcl_params, lcl_params, compile_derivatives=False)
+
+        # Use cached model and update parameters (fast!)
+        knee_model = self._cached_knee_model
+        knee_model.update_ligament_parameters(mcl_params, lcl_params)
         
         predicted_forces = []
         
@@ -456,6 +446,7 @@ class CompleteMCMCSampler(BaseSampler):
 
         # Compute residuals
         residuals = np.array(applied_forces) - np.array(predicted_forces)   
+        
         # Gaussian log-likelihood: -½∑(residuals²/σ²) - N*log(σ√(2π))
         log_like = -0.5 * np.sum(residuals**2) / (sigma_noise**2) - len(thetas) * np.log(sigma_noise * np.sqrt(2 * np.pi))
         # Ensure log_like is a numeric value before checking if it's finite

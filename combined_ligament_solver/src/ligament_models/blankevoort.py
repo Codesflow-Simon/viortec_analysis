@@ -27,7 +27,7 @@ class BlankevoortFunction(LigamentFunction):
         )
 
         relative_force = force_expr(x-l_0)
-        total_force = relative_force - f_ref
+        total_force = relative_force # - f_ref
 
         # relative_force = force_expr(x-l_0+f_ref)
         # total_force = relative_force - k* f_ref

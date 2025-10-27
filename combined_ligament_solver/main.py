@@ -20,8 +20,12 @@ def analyse_data(config, data, constraint_manager):
     # Pass knee configuration to sampler
     knee_config = config['mechanics']
 
+    pre_compute_lcl_lengths = data['length_known_a']
+    pre_compute_mcl_lengths = data['length_known_b']
+
     sampler = CompleteMCMCSampler(knee_config, constraint_manager)
-    cov_matrix, std_params, samples, acceptance_rate = sampler.sample(thetas, applied_forces, use_screening=True, sigma_noise=1e2)
+    cov_matrix, std_params, samples, acceptance_rate = sampler.sample(thetas, applied_forces, lcl_lengths=pre_compute_lcl_lengths, 
+        mcl_lengths=pre_compute_mcl_lengths, use_screening=True, screen_percentage=0.1, sigma_noise=1e2)
     
     print(f"MCMC completed with {len(samples)} samples")
     print(f"Acceptance rate: {acceptance_rate:.3f}")
@@ -67,8 +71,6 @@ def collect_data(config):
         mechanics['theta'] = theta
         model = KneeModel(mechanics, lig_left, lig_right, log=False)
         solutions = model.solve()
-        model.plot_model(show_forces=True)
-        plt.show()
         
         moment = float(solutions['applied_force'].get_moment().norm())
         if moment > moment_limit:
@@ -137,12 +139,31 @@ def visualize_ligament_curves(config, samples, data):
     gt_mcl_func = BlankevoortFunction(np.array([ground_truth_mcl['k'], ground_truth_mcl['alpha'], 
                                                 ground_truth_mcl['l_0'], ground_truth_mcl['f_ref']]))
     
-    # Create elongation range for plotting
-    elongation_range = np.linspace(0, 150, 200)  # mm
+    # Calculate elongation from data
+    lcl_lengths = np.array(data['length_known_a'])
+    mcl_lengths = np.array(data['length_known_b'])
+    lcl_forces = np.array(data['force_known_a'])
+    mcl_forces = np.array(data['force_known_b'])
+    
+    lcl_elongations = lcl_lengths
+    mcl_elongations = mcl_lengths
+    
+    # Determine appropriate elongation range
+    # Start at l_0 (since we're plotting raw lengths, not elongation)
+    lcl_start = ground_truth_lcl['l_0']
+    mcl_start = ground_truth_mcl['l_0']
+    
+    # End just past the last data point
+    lcl_end = np.max(lcl_elongations) + 5
+    mcl_end = np.max(mcl_elongations) + 5
+    
+    # Create elongation ranges for plotting
+    lcl_elongation_range = np.linspace(lcl_start, lcl_end, 200)
+    mcl_elongation_range = np.linspace(mcl_start, mcl_end, 200)
     
     # Calculate ground truth curves
-    gt_lcl_tension = gt_lcl_func(elongation_range)
-    gt_mcl_tension = gt_mcl_func(elongation_range)
+    gt_lcl_tension = gt_lcl_func(lcl_elongation_range)
+    gt_mcl_tension = gt_mcl_func(mcl_elongation_range)
     
     # Calculate MCMC sample curves
     sample_lcl_tensions = []
@@ -155,8 +176,8 @@ def visualize_ligament_curves(config, samples, data):
         lcl_func = BlankevoortFunction(lcl_params, compile_derivatives=False)
         mcl_func = BlankevoortFunction(mcl_params, compile_derivatives=False)
         
-        sample_lcl_tensions.append(lcl_func(elongation_range))
-        sample_mcl_tensions.append(mcl_func(elongation_range))
+        sample_lcl_tensions.append(lcl_func(lcl_elongation_range))
+        sample_mcl_tensions.append(mcl_func(mcl_elongation_range))
     
     # Calculate mean sample
     mean_lcl_params = np.mean(samples[:, 4:], axis=0)
@@ -165,35 +186,43 @@ def visualize_ligament_curves(config, samples, data):
     mean_lcl_func = BlankevoortFunction(mean_lcl_params, compile_derivatives=False)
     mean_mcl_func = BlankevoortFunction(mean_mcl_params, compile_derivatives=False)
     
-    mean_lcl_tension = mean_lcl_func(elongation_range)
-    mean_mcl_tension = mean_mcl_func(elongation_range)
+    mean_lcl_tension = mean_lcl_func(lcl_elongation_range)
+    mean_mcl_tension = mean_mcl_func(mcl_elongation_range)
     
     # Create plots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
     # LCL plot
-    ax1.plot(elongation_range, gt_lcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
-    ax1.plot(elongation_range, mean_lcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
+    ax1.plot(lcl_elongation_range, gt_lcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
+    ax1.plot(lcl_elongation_range, mean_lcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
     
     for i, tension in enumerate(sample_lcl_tensions[:50]):  # Show first 50 samples
-        ax1.plot(elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
+        ax1.plot(lcl_elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
     
-    ax1.set_xlabel('Elongation (mm)')
+    # Add data points overlay
+    ax1.scatter(lcl_elongations, lcl_forces, color='green', s=30, alpha=0.8, 
+                label='Data Points', zorder=5)
+    
+    ax1.set_xlabel('Length (mm)')
     ax1.set_ylabel('Tension (N)')
-    ax1.set_title('LCL Tension vs Elongation')
+    ax1.set_title('LCL Tension vs Length')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
     # MCL plot
-    ax2.plot(elongation_range, gt_mcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
-    ax2.plot(elongation_range, mean_mcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
+    ax2.plot(mcl_elongation_range, gt_mcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
+    ax2.plot(mcl_elongation_range, mean_mcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
     
     for i, tension in enumerate(sample_mcl_tensions[:50]):  # Show first 50 samples
-        ax2.plot(elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
+        ax2.plot(mcl_elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
     
-    ax2.set_xlabel('Elongation (mm)')
+    # Add data points overlay
+    ax2.scatter(mcl_elongations, mcl_forces, color='green', s=30, alpha=0.8, 
+                label='Data Points', zorder=5)
+    
+    ax2.set_xlabel('Length (mm)')
     ax2.set_ylabel('Tension (N)')
-    ax2.set_title('MCL Tension vs Elongation')
+    ax2.set_title('MCL Tension vs Length')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
@@ -220,11 +249,11 @@ def visualize_theta_force_curves(config, samples, data):
         mcl_func = BlankevoortFunction(mcl_params, compile_derivatives=False)
         
         # Create model with sample parameters
-        model = KneeModel(knee_config, lcl_func, mcl_func, log=False)
         
         sample_forces = []
         for theta in all_thetas:
-            model.set_theta(theta)
+            knee_config['theta'] = theta
+            model = KneeModel(knee_config, lcl_func, mcl_func, log=False)
             solutions = model.solve()
             sample_forces.append(float(solutions['applied_force'].get_force().norm()))
         
@@ -237,27 +266,27 @@ def visualize_theta_force_curves(config, samples, data):
     mean_lcl_func = BlankevoortFunction(mean_lcl_params, compile_derivatives=False)
     mean_mcl_func = BlankevoortFunction(mean_mcl_params, compile_derivatives=False)
     
-    mean_model = KneeModel(knee_config, mean_lcl_func, mean_mcl_func, log=False)
     mean_forces = []
     for theta in all_thetas:
-        mean_model.set_theta(theta)
+        knee_config['theta'] = theta
+        mean_model = KneeModel(knee_config, mean_lcl_func, mean_mcl_func, log=False)
         solutions = mean_model.solve()
         mean_forces.append(float(solutions['applied_force'].get_force().norm()))
     
     # Create plot
     plt.figure(figsize=(12, 8))
     
-    # Plot ground truth
-    plt.plot(np.degrees(all_thetas), all_forces, 'ko-', linewidth=3, markersize=6, 
-             label='Ground Truth', alpha=0.8)
+    # Plot ground truth as points only
+    plt.scatter(np.degrees(all_thetas), all_forces, color='black', s=50, 
+                label='Ground Truth', alpha=0.8, zorder=5)
     
-    # Plot mean prediction
-    plt.plot(np.degrees(all_thetas), mean_forces, 'r--', linewidth=2, 
-             label='Mean MCMC Prediction')
+    # Plot mean prediction as points only
+    plt.scatter(np.degrees(all_thetas), mean_forces, color='red', s=30, 
+                label='Mean MCMC Prediction', alpha=0.8, zorder=4)
     
-    # Plot sample predictions
+    # Plot sample predictions as points only
     for i, forces in enumerate(sample_predictions[:100]):  # Show first 100 samples
-        plt.plot(np.degrees(all_thetas), forces, 'b-', alpha=0.1, linewidth=0.5)
+        plt.scatter(np.degrees(all_thetas), forces, color='blue', s=10, alpha=0.1, zorder=1)
     
     plt.xlabel('Theta (degrees)')
     plt.ylabel('Applied Force (N)')

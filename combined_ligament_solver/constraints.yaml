@@ -26,8 +26,8 @@ blankevoort_mcl:
     f_ref:
       type: between
       lower: 0.0
-      upper: 700
-      description: "Reference force (strain)"
+      upper: 0.0
+      description: "Reference force (strain) - fixed to zero"
 
 blankevoort_lcl:
   parameters:
@@ -54,5 +54,5 @@ blankevoort_lcl:
     f_ref:
       type: between
       lower: 0.0
-      upper: 1200
-      description: "Reference force (strain)"
+      upper: 0.0
+      description: "Reference force (strain) - fixed to zero"

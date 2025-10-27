@@ -241,9 +241,6 @@ class KneeModel(AbstractModel):
         solutions['lig_springA_force'] = Force("LigSpringA", lig_a_force_point, self.lig_bottom_pointA)
         solutions['lig_springB_force'] = Force("LigSpringB", lig_b_force_point, self.lig_bottom_pointB)
 
-        # Calculate moment arms
-        left_moment_arm = self.calculate_moment_arm(self.lig_bottom_pointA, self.applied_force.get_force(), contact_point_tibia)
-        right_moment_arm = self.calculate_moment_arm(self.lig_bottom_pointB, self.applied_force.get_force(), contact_point_tibia)
         
         solutions['applied_force'] = self.applied_force
         solutions['constraint_force'] = self.constraint_force

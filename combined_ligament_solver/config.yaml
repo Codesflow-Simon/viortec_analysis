@@ -21,7 +21,7 @@ blankevoort_lcl: # Left side (right leg)
 mechanics:
     left_length: 63.1
     right_length: 94.8
-    femur_length: 50 # All lengths in mm, for visualization only
+    femur_length: 50 # All lengths in mm
     femur_perp: 47 # Width of the femur
     tibia_perp: 47 # Needs to be the same as femur_perp
     tibia_para: 44 # Should be exactly twice the larger ball radius?

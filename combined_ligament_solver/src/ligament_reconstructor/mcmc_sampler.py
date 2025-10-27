@@ -139,11 +139,25 @@ class CompleteMCMCSampler(BaseSampler):
     Complete MCMC sampler using emcee for Bayesian inference.
     """
     
-    def __init__(self, knee_config, constraint_manager=None, n_walkers=2, n_steps=350, n_burnin=300):
+    def __init__(self, knee_config, constraint_manager, n_walkers=128, n_steps=350, n_burnin=300):
         super().__init__(constraint_manager)
         self.n_walkers = n_walkers
         self.n_steps = n_steps
         self.knee_config = knee_config  # Store pre-built knee model
+        
+        # Create and cache a KneeModel instance to reuse across likelihood evaluations
+        # This avoids the expensive rebuild cost on every call
+        from src.ligament_models.blankevoort import BlankevoortFunction
+        from src.statics_solver.models.statics_model import KneeModel
+        
+        # Use dummy parameters for initial model creation
+        dummy_mcl_params = np.array([30.0, 0.06, 90.0, 0.0])
+        dummy_lcl_params = np.array([40.0, 0.06, 60.0, 0.0])
+        dummy_lig_left = BlankevoortFunction(dummy_lcl_params, compile_derivatives=False)
+        dummy_lig_right = BlankevoortFunction(dummy_mcl_params, compile_derivatives=False)
+        
+        # Build model once with dummy parameters
+        self._cached_knee_model = KneeModel(self.knee_config, dummy_lig_left, dummy_lig_right, log=False)
 
     def _log_prior_single(self, params: np.ndarray, constraint_manager) -> float:
         """Check constraints for a single ligament's parameters."""
@@ -200,15 +214,23 @@ class CompleteMCMCSampler(BaseSampler):
         
         # Initialize walkers for MCL parameters
         for i in range(n_mcl_params):
-            initial_positions[:, i] = np.random.uniform(
-                mcl_constraints_list[i][0], mcl_constraints_list[i][1], n_walkers
-            )
+            lower, upper = mcl_constraints_list[i]
+            if lower == upper:
+                # Fixed parameter - set all walkers to the same value
+                initial_positions[:, i] = lower
+            else:
+                # Variable parameter - sample uniformly
+                initial_positions[:, i] = np.random.uniform(lower, upper, n_walkers)
         
         # Initialize walkers for LCL parameters
         for i in range(n_lcl_params):
-            initial_positions[:, i + n_mcl_params] = np.random.uniform(
-                lcl_constraints_list[i][0], lcl_constraints_list[i][1], n_walkers
-            )
+            lower, upper = lcl_constraints_list[i]
+            if lower == upper:
+                # Fixed parameter - set all walkers to the same value
+                initial_positions[:, i + n_mcl_params] = lower
+            else:
+                # Variable parameter - sample uniformly
+                initial_positions[:, i + n_mcl_params] = np.random.uniform(lower, upper, n_walkers)
             
         return initial_positions
 
@@ -256,7 +278,7 @@ class CompleteMCMCSampler(BaseSampler):
         
         return candidate_positions[selected_indices]
 
-    def sample(self, thetas, applied_forces, sigma_noise=1e-3, random_state=None, **kwargs):
+    def sample(self, thetas, applied_forces, lcl_lengths, mcl_lengths, sigma_noise=1e-3, random_state=None, **kwargs):
         """
         Generate samples using MCMC.
         
@@ -273,6 +295,10 @@ class CompleteMCMCSampler(BaseSampler):
             mcmc_samples: All MCMC samples
             acceptance_fraction: Acceptance fraction of the sampler
         """
+
+        self.lcl_lengths = lcl_lengths
+        self.mcl_lengths = mcl_lengths
+
         # Override default parameters if provided
         n_walkers = kwargs.get('n_walkers', self.n_walkers)
         n_steps = kwargs.get('n_steps', self.n_steps)
@@ -314,6 +340,27 @@ class CompleteMCMCSampler(BaseSampler):
     
         if random_state is not None:
             np.random.seed(random_state)
+        
+        # Debug: Check initial positions
+        print(f"Initial positions shape: {initial_positions.shape}")
+        print(f"Initial positions mean: {np.mean(initial_positions, axis=0)}")
+        print(f"Initial positions std: {np.std(initial_positions, axis=0)}")
+        print(f"Initial positions min: {np.min(initial_positions, axis=0)}")
+        print(f"Initial positions max: {np.max(initial_positions, axis=0)}")
+        
+        # Check for any columns with zero variance (all identical values)
+        zero_var_cols = np.where(np.std(initial_positions, axis=0) == 0)[0]
+        if len(zero_var_cols) > 0:
+            print(f"Warning: Columns with zero variance: {zero_var_cols}")
+            print(f"These columns have identical values: {initial_positions[0, zero_var_cols]}")
+            
+            # Add small random noise to fixed parameters to ensure linear independence
+            for col in zero_var_cols:
+                fixed_value = initial_positions[0, col]
+                # Add very small noise (1e-10) to make walkers linearly independent
+                noise = np.random.normal(0, 1e-10, initial_positions.shape[0])
+                initial_positions[:, col] = fixed_value + noise
+                print(f"Added small noise to column {col} (fixed parameter)")
         
         # Run MCMC
         sampler.run_mcmc(initial_positions, n_steps, progress=True)
@@ -358,39 +405,66 @@ class CompleteMCMCSampler(BaseSampler):
         if not np.all(np.isfinite(mcl_params)) or not np.all(np.isfinite(lcl_params)):
             return -np.inf
         
-        # Create ligament functions with candidate parameters (skip expensive compilation)
-        from src.ligament_models.blankevoort import BlankevoortFunction
-        lig_left = BlankevoortFunction(lcl_params)
-        lig_right = BlankevoortFunction(mcl_params)
-        
-        # Update ligament functions in the model using fast path
-        from src.statics_solver.models.statics_model import KneeModel
+        # Reuse cached knee model and update only ligament parameters
+        # This is MUCH faster than creating a new KneeModel each time
+        if not hasattr(self, '_cached_knee_model'):
+            # Fallback: create model if not cached (shouldn't happen)
+            from src.ligament_models.blankevoort import BlankevoortFunction
+            from src.statics_solver.models.statics_model import KneeModel
+            lig_left = BlankevoortFunction(lcl_params, compile_derivatives=False)
+            lig_right = BlankevoortFunction(mcl_params, compile_derivatives=False)
+            knee_model = KneeModel(self.knee_config, lig_left, lig_right, log=False)
+        else:
+            # Use cached model and update parameters (fast!)
+            knee_model = self._cached_knee_model
+            knee_model.update_ligament_parameters(mcl_params, lcl_params, compile_derivatives=False)
         
         predicted_forces = []
         
         # For each theta, update angle and solve for predicted applied force
-        for theta in thetas:
-            temp_config = self.knee_config.copy()
-            temp_config['theta'] = theta    
-            knee_model = KneeModel(temp_config, lig_left, lig_right, log=False)
-            solutions = knee_model.solve()
+        for i,theta in enumerate(thetas):
             
-            # Extract predicted applied force magnitude
-            predicted_force = float(solutions['applied_force'].get_force().norm())
-            
-            if not np.isfinite(predicted_force):
-                return -np.inf
-                
-            predicted_forces.append(predicted_force)
-        
-        predicted_forces = np.array(predicted_forces)
-        
+            mcl_length = self.mcl_lengths[i] # Ligament a
+            lcl_length = self.lcl_lengths[i] # Ligament b
+
+            # Get ligament tensions using the model's ligament functions
+            mcl_tension = float(knee_model.lig_function_right(mcl_length))
+            lcl_tension = float(knee_model.lig_function_left(lcl_length))
+
+            contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
+            mcl_direction = knee_model.lig_springA.get_force_direction_on_p2()
+            lcl_direction = knee_model.lig_springB.get_force_direction_on_p2()
+
+            mcl_force_vector =  abs(mcl_tension) * mcl_direction
+            lcl_force_vector =  abs(lcl_tension) * lcl_direction
+
+            tibia_frame = knee_model.tibia_frame
+            mcl_moment_arm = knee_model.calculate_moment_arm(knee_model.lig_bottom_pointA.convert_to_frame(tibia_frame), mcl_direction.convert_to_frame(tibia_frame), contact_point.convert_to_frame(tibia_frame))
+            mcl_moment_arm = abs(float(mcl_moment_arm))
+            lcl_moment_arm = knee_model.calculate_moment_arm(knee_model.lig_bottom_pointB.convert_to_frame(tibia_frame), lcl_direction.convert_to_frame(tibia_frame), contact_point.convert_to_frame(tibia_frame))
+            lcl_moment_arm = abs(float(lcl_moment_arm))
+
+            from src.statics_solver.src.reference_frame import Point
+            applied_moment_arm = knee_model.calculate_moment_arm(knee_model.application_point.convert_to_frame(tibia_frame), Point([1,0,0], tibia_frame), contact_point.convert_to_frame(tibia_frame))
+            applied_moment_arm = abs(float(applied_moment_arm))
+
+            applied_force = (mcl_tension * mcl_moment_arm - lcl_tension * lcl_moment_arm) / applied_moment_arm
+            # Ensure applied_force is a numeric value
+            applied_force = float(applied_force)
+            predicted_forces.append(applied_force)
+
+
         # Compute residuals
-        residuals = applied_forces - predicted_forces        
+        residuals = np.array(applied_forces) - np.array(predicted_forces)   
         # Gaussian log-likelihood: -½∑(residuals²/σ²) - N*log(σ√(2π))
         log_like = -0.5 * np.sum(residuals**2) / (sigma_noise**2) - len(thetas) * np.log(sigma_noise * np.sqrt(2 * np.pi))
+        # Ensure log_like is a numeric value before checking if it's finite
         
-        return log_like if np.isfinite(log_like) else -np.inf
+        try:
+            log_like = float(log_like)
+            return log_like if np.isfinite(log_like) else -np.inf
+        except (TypeError, ValueError):
+            return -np.inf
 
 
 

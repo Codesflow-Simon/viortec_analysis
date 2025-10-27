@@ -148,13 +148,34 @@ class KneeModel(AbstractModel):
         solutions['lig_springA_force'] = self.lig_springA.get_force_on_point1()
         solutions['lig_springB_force'] = self.lig_springB.get_force_on_point1()
 
+        contact_point = self.knee_joint.get_contact_point(theta=self.data['theta'])
+        left_moment_arm = self.calculate_moment_arm(self.lig_bottom_pointA, self.applied_force.get_force(), contact_point.convert_to_frame(self.tibia_frame))
+        right_moment_arm = self.calculate_moment_arm(self.lig_bottom_pointB, self.applied_force.get_force(), contact_point.convert_to_frame(self.tibia_frame))
+        
+        print(f"Left moment arm: {left_moment_arm}")
+        print(f"Right moment arm: {right_moment_arm}")
+        print(f"Theta: {self.data['theta']}")
+        if self.data['theta'] > 0:
+            solutions['estimated_lig_springA_force'] = self.applied_force.get_moment().norm() / (left_moment_arm + right_moment_arm)
+            solutions['estimated_lig_springB_force'] = -self.applied_force.get_moment().norm() / (left_moment_arm + right_moment_arm)
+        else:
+            solutions['estimated_lig_springA_force'] = -self.applied_force.get_moment().norm() / (right_moment_arm + left_moment_arm)
+            solutions['estimated_lig_springB_force'] = self.applied_force.get_moment().norm() / (right_moment_arm + left_moment_arm)
+
         solutions['applied_force'] = self.applied_force
         solutions['constraint_force'] = self.constraint_force
 
-        print(f"Solutions: {solutions}")
+        # print(f"Solutions: {solutions}")
         
         return solutions
-    
+
+    def calculate_moment_arm(self, force_point, force_vector, pivot_point):
+        """
+        Calculate the moment arm of a force around a pivot point.
+        """
+        
+        return (force_point - pivot_point).cross(force_vector).norm() / force_vector.norm()
+            
     def plot_model(self, show_forces=False):
         vis = Visualiser2D(self.world_frame)
         vis.add_point(self.knee_point, label="Knee origin")

@@ -220,15 +220,22 @@ def main(config, constraints_config):
     model = KneeModel(config['mechanics'], lig_left, lig_right, log=False)
     
     solutions = model.solve()
-    model.plot_model(show_forces=True)
-    plt.show()
+    # model.plot_model(show_forces=True)
+    # plt.show()
+
+    applied_force = []
+    applied_moment = []
 
     length_estimates_a = [] # LCL
-    force_estimates_a = []
+    force_known_a = []
+    force_estimated_a = []
+    moment_known_a = []
 
     length_estimates_b = [] # MCL
-    force_estimates_b = []
-
+    force_known_b = []
+    force_estimated_b = []
+    moment_known_b = []
+    
     # Get reference forces at theta=0
     mechanics = config['mechanics'].copy()
     mechanics['theta'] = 0
@@ -256,14 +263,39 @@ def main(config, constraints_config):
             break
         else:
             print(f"Theta: {np.degrees(theta)}, force: {solutions['applied_force'].get_force().norm()}, moment: {moment}")
+            applied_force.append(float(solutions['applied_force'].get_force().norm()))
+            applied_moment.append(moment)
+
             length_estimates_a.append(float(solutions['lig_springA_length']))
-            force_estimates_a.append(float(solutions['lig_springA_force'].get_force().norm()))
+            force_known_a.append(float(solutions['lig_springA_force'].get_force().norm()))
+            force_estimated_a.append(float(solutions['estimated_lig_springA_force']))   
 
             length_estimates_b.append(float(solutions['lig_springB_length']))
-            force_estimates_b.append(float(solutions['lig_springB_force'].get_force().norm()))
+            force_known_b.append(float(solutions['lig_springB_force'].get_force().norm()))
+            force_estimated_b.append(float(solutions['estimated_lig_springB_force']))
+
+            # Calculate ligament moments
+            contact_point = model.knee_joint.get_contact_point(theta=theta)
+            
+            # Calculate moment arms for ligaments (distance from contact point to ligament attachment)
+            lig_force_a = solutions['lig_springA_force'].get_force()
+            lig_force_b = solutions['lig_springB_force'].get_force()
+            
+            # Moment = r x F, where r is from contact point to force application point
+            # We'll use the tibia attachment point for the moment arm
+            r_a = model.lig_bottom_pointA.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
+            r_b = model.lig_bottom_pointB.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
+            
+            # Calculate moment magnitude (in 2D, cross product gives z-component)
+            moment_a = float((r_a.cross(lig_force_a.convert_to_frame(model.tibia_frame))).norm())
+            moment_b = float((r_b.cross(lig_force_b.convert_to_frame(model.tibia_frame))).norm())
+            
+            moment_known_a.append(moment_a)
+            moment_known_b.append(moment_b)
+
             theta_list.append(theta)
 
-            theta += 1/3 * np.pi/180
+            theta += 0.1 * np.pi/180
 
     theta = 0
     while True:
@@ -278,15 +310,190 @@ def main(config, constraints_config):
             break
         else:
             print(f"Theta: {np.degrees(theta)}, force: {solutions['applied_force'].get_force().norm()}, moment: {moment}")
+            applied_force.append(float(solutions['applied_force'].get_force().norm()))
+            applied_moment.append(moment)
+            
             length_estimates_a.append(float(solutions['lig_springA_length']))
-            force_estimates_a.append(float(solutions['lig_springA_force'].get_force().norm()))
+            force_known_a.append(float(solutions['lig_springA_force'].get_force().norm()))
+            force_estimated_a.append(float(solutions['estimated_lig_springA_force']))
 
             length_estimates_b.append(float(solutions['lig_springB_length']))
-            force_estimates_b.append(float(solutions['lig_springB_force'].get_force().norm()))
+            force_known_b.append(float(solutions['lig_springB_force'].get_force().norm()))
+            force_estimated_b.append(float(solutions['estimated_lig_springB_force']))
+
+            # Calculate ligament moments
+            contact_point = model.knee_joint.get_contact_point(theta=theta)
+            
+            # Calculate moment arms for ligaments
+            lig_force_a = solutions['lig_springA_force'].get_force()
+            lig_force_b = solutions['lig_springB_force'].get_force()
+            
+            # Moment = r x F
+            r_a = model.lig_bottom_pointA.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
+            r_b = model.lig_bottom_pointB.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
+            
+            # Calculate moment magnitude
+            moment_a = float((r_a.cross(lig_force_a.convert_to_frame(model.tibia_frame))).norm())
+            moment_b = float((r_b.cross(lig_force_b.convert_to_frame(model.tibia_frame))).norm())
+            
+            moment_known_a.append(moment_a)
+            moment_known_b.append(moment_b)
+
             theta_list.append(theta)
         
             theta -= 1/3 * np.pi/180
 
+    # Convert theta to degrees for plotting
+    theta_degrees = [np.degrees(t) for t in theta_list]
+    
+    # Find indices where theta = 0
+    zero_theta_indices = [i for i, theta in enumerate(theta_list) if abs(theta) < 1e-6]
+    
+    # Create figure and axis
+    plt.figure(figsize=(10, 6))
+    plt.plot(theta_degrees, applied_force, 'b-', label='Applied Force')
+    
+    # Add labels and title
+    plt.xlabel('Angle (degrees)')
+    plt.ylabel('Force (N)')
+    plt.title('Applied Force vs Joint Angle')
+    plt.grid(True)
+    plt.legend()
+    
+    # Create force vs theta plots for ligaments
+    plt.figure(figsize=(12, 5))
+    
+    # LCL force vs theta
+    plt.subplot(1, 2, 1)
+    plt.scatter(theta_degrees, force_known_a, s=20, alpha=0.6, label='LCL Force', color='blue')
+    
+    # Mark zero-theta point
+    if zero_theta_indices:
+        zero_theta_idx = zero_theta_indices[0]
+        plt.scatter([theta_degrees[zero_theta_idx]], [force_known_a[zero_theta_idx]], 
+                   s=100, color='red', marker='*', label='Zero Theta', zorder=5)
+    
+    plt.xlabel('Angle (degrees)')
+    plt.ylabel('Force (N)')
+    plt.title('LCL Force vs Joint Angle')
+    plt.grid(True)
+    plt.legend()
+    
+    # MCL force vs theta
+    plt.subplot(1, 2, 2)
+    plt.scatter(theta_degrees, force_known_b, s=20, alpha=0.6, label='MCL Force', color='orange')
+    
+    # Mark zero-theta point
+    if zero_theta_indices:
+        zero_theta_idx = zero_theta_indices[0]
+        plt.scatter([theta_degrees[zero_theta_idx]], [force_known_b[zero_theta_idx]], 
+                   s=100, color='red', marker='*', label='Zero Theta', zorder=5)
+    
+    plt.xlabel('Angle (degrees)')
+    plt.ylabel('Force (N)')
+    plt.title('MCL Force vs Joint Angle')
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('ligament_forces_vs_theta.png')
+    
+    # Create force vs theta plots for ligaments - moments
+    plt.figure(figsize=(12, 5))
+    
+    # LCL moment vs theta
+    plt.subplot(1, 2, 1)
+    plt.scatter(theta_degrees, moment_known_a, s=20, alpha=0.6, label='LCL Moment', color='blue')
+    
+    # Mark zero-theta point
+    if zero_theta_indices:
+        zero_theta_idx = zero_theta_indices[0]
+        plt.scatter([theta_degrees[zero_theta_idx]], [moment_known_a[zero_theta_idx]], 
+                   s=100, color='red', marker='*', label='Zero Theta', zorder=5)
+    
+    plt.xlabel('Angle (degrees)')
+    plt.ylabel('Moment (N⋅mm)')
+    plt.title('LCL Moment vs Joint Angle')
+    plt.grid(True)
+    plt.legend()
+    
+    # MCL moment vs theta
+    plt.subplot(1, 2, 2)
+    plt.scatter(theta_degrees, moment_known_b, s=20, alpha=0.6, label='MCL Moment', color='orange')
+    
+    # Mark zero-theta point
+    if zero_theta_indices:
+        zero_theta_idx = zero_theta_indices[0]
+        plt.scatter([theta_degrees[zero_theta_idx]], [moment_known_b[zero_theta_idx]], 
+                   s=100, color='red', marker='*', label='Zero Theta', zorder=5)
+    
+    plt.xlabel('Angle (degrees)')
+    plt.ylabel('Moment (N⋅mm)')
+    plt.title('MCL Moment vs Joint Angle')
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('ligament_moments_vs_theta.png')
+    plt.show()
+    
+    # Create elongation vs force plots for ligaments
+    plt.figure(figsize=(12, 5))
+    
+    # Get rest lengths (l_0) for zero-force point
+    l_0_lcl = config['blankevoort_lcl']['l_0']
+    l_0_mcl = config['blankevoort_mcl']['l_0']
+    
+    # Generate ground truth curves extending to l_0
+    min_length_lcl = min(min(length_estimates_a), l_0_lcl)
+    max_length_lcl = max(length_estimates_a)
+    length_range_lcl = np.linspace(min_length_lcl, max_length_lcl, 200)
+    force_gt_lcl = [lig_left(l) for l in length_range_lcl]
+    
+    min_length_mcl = min(min(length_estimates_b), l_0_mcl)
+    max_length_mcl = max(length_estimates_b)
+    length_range_mcl = np.linspace(min_length_mcl, max_length_mcl, 200)
+    force_gt_mcl = [lig_right(l) for l in length_range_mcl]
+    
+    # LCL plot
+    plt.subplot(1, 2, 1)
+    plt.scatter(length_estimates_a, force_known_a, s=20, alpha=0.6, label='Computed Force', color='blue')
+    plt.plot(length_range_lcl, force_gt_lcl, 'g-', linewidth=2, label='Ground Truth Function')
+    
+    # Mark zero-theta point
+    if zero_theta_indices:
+        zero_theta_idx = zero_theta_indices[0]
+        plt.scatter([length_estimates_a[zero_theta_idx]], [force_known_a[zero_theta_idx]], 
+                   s=100, color='red', marker='*', label='Zero Theta', zorder=5)
+    
+    plt.xlabel('Elongation (m)')
+    plt.ylabel('Force (N)')
+    plt.title('LCL Force vs Elongation')
+    plt.grid(True)
+    plt.legend()
+    
+    # MCL plot
+    plt.subplot(1, 2, 2)
+    plt.scatter(length_estimates_b, force_known_b, s=20, alpha=0.6, label='Computed Force', color='blue')
+    plt.plot(length_range_mcl, force_gt_mcl, 'g-', linewidth=2, label='Ground Truth Function')
+    
+    # Mark zero-theta point
+    if zero_theta_indices:
+        zero_theta_idx = zero_theta_indices[0]
+        plt.scatter([length_estimates_b[zero_theta_idx]], [force_known_b[zero_theta_idx]], 
+                   s=100, color='red', marker='*', label='Zero Theta', zorder=5)
+    
+    plt.xlabel('Elongation (m)')
+    plt.ylabel('Force (N)')
+    plt.title('MCL Force vs Elongation')
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('ligament_forces.png')
+    plt.show()
+
+    
     # Process LCL
     gt_params_lcl = config['blankevoort_lcl'].copy()
     gt_params_lcl['f_ref'] = reference_point_lcl
@@ -311,8 +518,8 @@ if __name__ == "__main__":
 
     results = []
 
-    reference_strains_lcl = [0.06]
-    reference_strains_mcl = [0.06]
+    reference_strains_lcl = [0.02]
+    reference_strains_mcl = [0.02]
     
     for ref_strain_lcl in reference_strains_lcl:
         for ref_strain_mcl in reference_strains_mcl:

@@ -133,7 +133,266 @@ class BaseSampler(ABC):
         
         ll = self.log_likelihood(params, x_data, y_data, func, sigma_noise)
         return lp + ll
+
+class CompleteMCMCSampler(BaseSampler):
+    """
+    Complete MCMC sampler using emcee for Bayesian inference.
+    """
     
+    def __init__(self, knee_config, constraint_manager=None, n_walkers=2, n_steps=350, n_burnin=300):
+        super().__init__(constraint_manager)
+        self.n_walkers = n_walkers
+        self.n_steps = n_steps
+        self.knee_config = knee_config  # Store pre-built knee model
+
+    def _log_prior_single(self, params: np.ndarray, constraint_manager) -> float:
+        """Check constraints for a single ligament's parameters."""
+        if not np.all(np.isfinite(params)):
+            return -np.inf
+        
+        constraints_list = constraint_manager.get_constraints_list()
+        for i, (lower, upper) in enumerate(constraints_list):
+            if not (lower <= params[i] <= upper):
+                return -np.inf
+        
+        return 0.0
+    
+    def log_probability(self, params: np.ndarray, thetas: np.ndarray, 
+                       applied_forces: np.ndarray, sigma_noise: float) -> float:
+        """Compute log-probability (prior + likelihood)."""
+        assert_parameter_format(params)
+        
+        
+        # Check both constraint managers (MCL and LCL)
+        mcl_params = params[:4]
+        lcl_params = params[4:]
+        
+        # Check MCL constraints
+        mcl_lp = self._log_prior_single(mcl_params, self.constraint_manager[0])
+        if not np.isfinite(mcl_lp):
+            return -np.inf
+        
+        # Check LCL constraints
+        lcl_lp = self._log_prior_single(lcl_params, self.constraint_manager[1])
+        if not np.isfinite(lcl_lp):
+            return -np.inf
+        
+        ll = self.log_likelihood(params, thetas, applied_forces, sigma_noise)
+        
+        total_log_prob = mcl_lp + lcl_lp + ll
+        
+        return total_log_prob
+
+    def initial_walkers(self, n_walkers, std=0.1):
+        """Initialize walkers in unconstrained space around the MAP estimate."""
+        mcl_constraints_manager = self.constraint_manager[0]
+        lcl_constraints_manager = self.constraint_manager[1]
+
+        mcl_constraints_list = mcl_constraints_manager.get_constraints_list()
+        lcl_constraints_list = lcl_constraints_manager.get_constraints_list()
+        
+        # Total parameters: 4 for MCL + 4 for LCL = 8
+        n_mcl_params = len(mcl_constraints_list)
+        n_lcl_params = len(lcl_constraints_list)
+        total_params = n_mcl_params + n_lcl_params
+        
+        initial_positions = np.zeros((n_walkers, total_params))
+        
+        # Initialize walkers for MCL parameters
+        for i in range(n_mcl_params):
+            initial_positions[:, i] = np.random.uniform(
+                mcl_constraints_list[i][0], mcl_constraints_list[i][1], n_walkers
+            )
+        
+        # Initialize walkers for LCL parameters
+        for i in range(n_lcl_params):
+            initial_positions[:, i + n_mcl_params] = np.random.uniform(
+                lcl_constraints_list[i][0], lcl_constraints_list[i][1], n_walkers
+            )
+            
+        return initial_positions
+
+    def initial_walkers_screened(self, n_walkers, std=0.1, 
+                                screen_percentage=0.1, thetas=None, applied_forces=None, sigma_noise=1e-3):
+        """
+        Initialize walkers by screening candidates and selecting the highest probability ones.
+        
+        Args:
+            n_walkers: Number of walkers needed
+            std: Standard deviation for parameter sampling
+            screen_percentage: Fraction of candidates to keep (e.g., 0.05 for top 5%)
+            thetas: Input data for likelihood evaluation
+            applied_forces: Target data for likelihood evaluation
+            sigma_noise: Noise standard deviation
+        """
+        # Generate many more candidates than needed
+        n_candidates = int(n_walkers / screen_percentage)
+        candidate_positions = self.initial_walkers(n_candidates, std)
+        
+        # Evaluate log-probability for all candidates
+        log_probs = np.array([
+            self.log_probability(candidate, thetas, applied_forces, sigma_noise)
+            for candidate in candidate_positions
+        ])
+        
+        # Select top candidates
+        n_select = max(n_walkers, int(screen_percentage * n_candidates))
+        top_indices = np.argsort(log_probs)[-n_select:]
+        
+        # Randomly select final walkers from top candidates
+        if len(top_indices) >= n_walkers:
+            selected_indices = np.random.choice(top_indices, n_walkers, replace=False)
+        else:
+            # Fill remaining with random selection if needed
+            remaining_needed = n_walkers - len(top_indices)
+            remaining_indices = np.random.choice(
+                np.setdiff1d(np.arange(n_candidates), top_indices), 
+                remaining_needed, replace=False
+            )
+            selected_indices = np.concatenate([top_indices, remaining_indices])
+        
+        print(f"Selected {len(selected_indices)} walkers from {n_candidates} candidates")
+        print(f"Log-probability range: {log_probs[selected_indices].min():.2f} to {log_probs[selected_indices].max():.2f}")
+        
+        return candidate_positions[selected_indices]
+
+    def sample(self, thetas, applied_forces, sigma_noise=1e-3, random_state=None, **kwargs):
+        """
+        Generate samples using MCMC.
+        
+        Args:
+            thetas: Input data points (knee angles)
+            applied_forces: Target data points (applied forces)
+            sigma_noise: Noise standard deviation
+            random_state: Random state for reproducibility
+            **kwargs: Additional parameters (can override n_walkers, n_steps, n_burnin)
+            
+        Returns:
+            cov_matrix: MCMC covariance matrix
+            std_params: Standard deviations of parameters
+            mcmc_samples: All MCMC samples
+            acceptance_fraction: Acceptance fraction of the sampler
+        """
+        # Override default parameters if provided
+        n_walkers = kwargs.get('n_walkers', self.n_walkers)
+        n_steps = kwargs.get('n_steps', self.n_steps)
+        n_burnin = kwargs.get('n_burnin', 300)  # Default burnin for CompleteMCMCSampler
+        
+        # Total parameters: 4 for MCL + 4 for LCL = 8
+        n_params = 8
+        
+        # Set up MCMC sampler with multiple move types
+        moves = [
+            emcee.moves.StretchMove(),  # Good for correlated parameters
+            # emcee.moves.DEMove(),       # Escapes local maxima
+            # emcee.moves.WalkMove(),     # Local exploration
+        ]
+        
+        sampler = emcee.EnsembleSampler(
+            n_walkers, n_params, self.log_probability,
+            args=(thetas, applied_forces, sigma_noise),
+            moves=moves
+        )
+        
+        # Initialize walkers in unconstrained space
+        # Use screened initialization by default, but allow override
+        use_screening = kwargs.get('use_screening', True)
+        screen_percentage = kwargs.get('screen_percentage', 0.1)
+        
+        if use_screening:
+            initial_positions = self.initial_walkers_screened(
+                n_walkers, 
+                screen_percentage=screen_percentage,
+                thetas=thetas, applied_forces=applied_forces, sigma_noise=sigma_noise
+            )
+        else:
+            initial_positions = self.initial_walkers(n_walkers)
+        
+        # Optional: return initial positions for visualization (disable MCMC)
+        if kwargs.get('visualize_only', False):
+            return None, None, initial_positions, 1
+    
+        if random_state is not None:
+            np.random.seed(random_state)
+        
+        # Run MCMC
+        sampler.run_mcmc(initial_positions, n_steps, progress=True)
+        
+        # Get samples after burn-in
+        samples = sampler.get_chain(discard=n_burnin, flat=True)
+        print(f"Valid samples shape: {samples.shape}")
+        
+        # Compute statistics
+        mcmc_means = np.mean(samples, axis=0)
+        print(f"Parameter means: {mcmc_means}")
+        
+        cov_matrix = np.cov(samples, rowvar=False)
+        std_params = np.sqrt(np.diag(cov_matrix))
+        
+        # Store results
+        self.samples = samples
+        self.covariance_matrix = cov_matrix
+        self.parameter_std = std_params
+        self.acceptance_rate = np.mean(sampler.acceptance_fraction)
+        
+        return cov_matrix, std_params, samples, self.acceptance_rate
+
+    def log_likelihood(self, params: np.ndarray, thetas: np.ndarray, 
+                      applied_forces: np.ndarray, sigma_noise: float = 1e-3) -> float:
+        """
+        Compute log-likelihood function assuming Gaussian noise.
+        
+        For a given theta, calculate the elongation of the ligaments using the knee model
+        Then calculate the force using the Blankevoort function and supplied parameters
+        The supplied parameters are the MCL and LCL parameters in that order
+        Then use these values to calculate the necessary applied force again using the knee model.
+        Finally report both these values and the (likelihood) difference between them.
+        """
+        assert_parameter_format(params)
+        
+        # Split parameters into MCL (first 4) and LCL (last 4) parameters
+        mcl_params = params[:4]  # [k, alpha, l_0, f_ref]
+        lcl_params = params[4:]  # [k, alpha, l_0, f_ref]
+        
+        # Validate parameter arrays
+        if not np.all(np.isfinite(mcl_params)) or not np.all(np.isfinite(lcl_params)):
+            return -np.inf
+        
+        # Create ligament functions with candidate parameters (skip expensive compilation)
+        from src.ligament_models.blankevoort import BlankevoortFunction
+        lig_left = BlankevoortFunction(lcl_params)
+        lig_right = BlankevoortFunction(mcl_params)
+        
+        # Update ligament functions in the model using fast path
+        from src.statics_solver.models.statics_model import KneeModel
+        
+        predicted_forces = []
+        
+        # For each theta, update angle and solve for predicted applied force
+        for theta in thetas:
+            temp_config = self.knee_config.copy()
+            temp_config['theta'] = theta    
+            knee_model = KneeModel(temp_config, lig_left, lig_right, log=False)
+            solutions = knee_model.solve()
+            
+            # Extract predicted applied force magnitude
+            predicted_force = float(solutions['applied_force'].get_force().norm())
+            
+            if not np.isfinite(predicted_force):
+                return -np.inf
+                
+            predicted_forces.append(predicted_force)
+        
+        predicted_forces = np.array(predicted_forces)
+        
+        # Compute residuals
+        residuals = applied_forces - predicted_forces        
+        # Gaussian log-likelihood: -½∑(residuals²/σ²) - N*log(σ√(2π))
+        log_like = -0.5 * np.sum(residuals**2) / (sigma_noise**2) - len(thetas) * np.log(sigma_noise * np.sqrt(2 * np.pi))
+        
+        return log_like if np.isfinite(log_like) else -np.inf
+
+
 
 class MCMCSampler(BaseSampler):
     """

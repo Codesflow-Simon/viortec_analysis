@@ -3,7 +3,7 @@ import numpy as np
 from sympy import symbols, Piecewise, diff, Matrix, lambdify
 
 class LigamentFunction:
-    def __init__(self, params: np.ndarray):
+    def __init__(self, params: np.ndarray, compile_derivatives: bool = True):
         self.set_params(params)
         # Cache for symbolic expressions and compiled functions
         self._cached_expr = None
@@ -12,9 +12,11 @@ class LigamentFunction:
         self._cached_jac_funcs = None
         self._cached_hess_funcs = None
         self._cached_func = None
+        self._compile_derivatives = compile_derivatives
         
         # Pre-compute all symbolic expressions and compile functions
-        self._setup_cached_functions()
+        if compile_derivatives:
+            self._setup_cached_functions()
 
     def _setup_cached_functions(self):
         """
@@ -63,11 +65,42 @@ class LigamentFunction:
             self.params = params
 
     def __call__(self, x: np.ndarray, use_cached_function: bool = True):
-        if use_cached_function:
-            result = self.function(x, self.params)
+        if use_cached_function and self._cached_func is not None:
+            result = self._cached_func(x, *self.params)
         else:
-            result = self.sympy_implementation()
-            result = result.subs(x, x)
+            # Fallback to direct evaluation without compilation
+            result = self._evaluate_direct(x)
+        return result
+    
+    def _evaluate_direct(self, x: np.ndarray):
+        """Direct evaluation without compiled functions for MCMC use cases."""
+        # This is a simple implementation that works for the Blankevoort function
+        # For more complex functions, subclasses should override this method
+        k, alpha, l_0, f_ref = self.params
+        
+        # Blankevoort function implementation
+        transition_length = l_0 * alpha
+        
+        if isinstance(x, np.ndarray):
+            result = np.zeros_like(x)
+            mask1 = (x - l_0) <= 0
+            mask2 = (x - l_0) > 0
+            mask3 = (x - l_0) > transition_length
+            
+            result[mask1] = 0
+            result[mask2 & ~mask3] = k * (x[mask2 & ~mask3] - l_0)**2 / (2 * transition_length)
+            result[mask3] = k * ((x[mask3] - l_0) - transition_length/2)
+            result = result - f_ref
+        else:
+            # Scalar case
+            if x - l_0 <= 0:
+                result = 0
+            elif x - l_0 <= transition_length:
+                result = k * (x - l_0)**2 / (2 * transition_length)
+            else:
+                result = k * ((x - l_0) - transition_length/2)
+            result = result - f_ref
+            
         return result
 
     def sympy_implementation(self):

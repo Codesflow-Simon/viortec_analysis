@@ -11,351 +11,263 @@ from datetime import datetime
 import os
 import csv
 from scipy.stats import gaussian_kde
+from src.ligament_reconstructor.mcmc_sampler import CompleteMCMCSampler
 
-def process_ligament(ligament_type, length_estimates, force_estimates, theta_list, gt_params, constraint_manager, config):
-    """Process a single ligament (LCL or MCL) - run optimization and MCMC"""
-    
-    print(f"\n{'='*60}")
-    print(f"Processing {ligament_type}")
-    print(f"{'='*60}")
-    
-    # Check if we have any data
-    if len(theta_list) == 0 or len(length_estimates) == 0 or len(force_estimates) == 0:
-        print(f"WARNING: No data collected for {ligament_type}. The moment limit may be too low or initial configuration may be invalid.")
-        print(f"Returning NaN values for {ligament_type}")
-        
-        # Return NaN result data
-        param_names = ['k', 'alpha', 'l_0', 'f_ref']
-        n_params = len(param_names)
-        result_data = {
-            'cov_matrix': np.full((n_params, n_params), np.nan),
-            'std_params': np.full(n_params, np.nan),
-            'samples': np.full((1, n_params), np.nan),
-            'acceptance_rate': np.nan,
-            'optimized_params': np.full(n_params, np.nan),
-            'gt_params': gt_params,
-            'reference_point': np.nan,
-            'initial_loss': np.nan,
-            'final_loss': np.nan,
-            'gt_log_likelihood_kde': np.nan,
-            'gt_log_likelihood_posterior': np.nan,
-            'function': None,
-            'sampler': None,
-            'theta_stats': {
-                'max_theta': np.nan,
-                'min_theta': np.nan,
-                'lowest_force_theta': np.nan
-            },
-            'data': {
-                'length': np.array([]),
-                'force': np.array([]),
-                'relative_force': np.array([])
-            }
-        }
-        return result_data
-    
-    length = np.array(length_estimates, dtype=np.float64)
-    force = np.array(force_estimates, dtype=np.float64)
-    
-    # Track theta statistics before adding noise
-    theta_array = np.array(theta_list)
-    max_theta = float(np.max(theta_array))
-    min_theta = float(np.min(theta_array))
-    min_force_idx = np.argmin(force)
-    lowest_force_theta = float(theta_array[min_force_idx])
-    
-    # Get reference force at theta=0
-    reference_point = gt_params['f_ref']
+def analyse_data(config, data, constraint_manager):
+    thetas = data['thetas']
+    applied_forces = data['applied_force']
 
-    force = force + np.random.normal(0, config['data']['y_noise'], len(force))
+    # Pass knee configuration to sampler
+    knee_config = config['mechanics']
 
-    print(f"Reference force: {reference_point}")
-    print(f"Theta range: [{np.degrees(min_theta):.2f}°, {np.degrees(max_theta):.2f}°]")
-    print(f"Lowest force at theta: {np.degrees(lowest_force_theta):.2f}°")
-    relative_force = force - reference_point # We only measure relative changes in force
-
-    def sort_data(length, force, relative_force):
-        sort_idx = np.argsort(length)
-        length = length[sort_idx]
-        force = force[sort_idx]
-        relative_force = relative_force[sort_idx]
-        return length, force, relative_force
-        
-    length, force, relative_force = sort_data(length, force, relative_force)
-
-    print(length, force, relative_force)
-    result_obj = reconstruct_ligament(length, relative_force, constraint_manager)
-    function = result_obj['function']
-    params = result_obj['params']
-    initial_loss = result_obj['initial_loss']
-    final_loss = result_obj['loss']
-    print(result_obj['params'])
-    print(f"Optimization: Initial loss={initial_loss:.3f}, Final loss={final_loss:.3f}")
-
-    # Run MCMC
-    from src.ligament_reconstructor.mcmc_sampler import MCMCSampler
-    sampler = MCMCSampler(constraint_manager=constraint_manager)
+    sampler = CompleteMCMCSampler(knee_config, constraint_manager)
+    cov_matrix, std_params, samples, acceptance_rate = sampler.sample(thetas, applied_forces, use_screening=True, sigma_noise=1e2)
     
-    try:
-        cov_matrix, std_params, samples, acceptance_rate = sampler.sample(
-            params, length, relative_force, function, 
-            sigma_noise=config['data']['sigma_noise'],
-        )
-        print(f"Acceptance rate: {acceptance_rate}")
-    except ValueError as e:
-        print(f"WARNING: MCMC sampling failed for {ligament_type}: {e}")
-        print(f"Returning NaN values for MCMC results")
-        
-        param_names = ['k', 'alpha', 'l_0', 'f_ref']
-        n_params = len(param_names)
-        result_data = {
-            'cov_matrix': np.full((n_params, n_params), np.nan),
-            'std_params': np.full(n_params, np.nan),
-            'samples': np.full((1, n_params), np.nan),
-            'acceptance_rate': np.nan,
-            'optimized_params': params,
-            'gt_params': gt_params,
-            'reference_point': reference_point,
-            'initial_loss': initial_loss,
-            'final_loss': final_loss,
-            'gt_log_likelihood_kde': np.nan,
-            'gt_log_likelihood_posterior': np.nan,
-            'function': function,
-            'sampler': sampler,
-            'theta_stats': {
-                'max_theta': max_theta,
-                'min_theta': min_theta,
-                'lowest_force_theta': lowest_force_theta
-            },
-            'data': {
-                'length': length,
-                'force': force,
-                'relative_force': relative_force
-            }
-        }
-        return result_data
-
-    # Remove outliers using IQR method for each parameter
-    if samples is not None:
-        Q1 = np.percentile(samples, 25, axis=0)
-        Q3 = np.percentile(samples, 75, axis=0)
-        IQR = Q3 - Q1
-        
-        # Define bounds for outlier detection (1.5 * IQR)
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        
-        # Create mask for samples within bounds for all parameters
-        mask = np.all((samples >= lower_bound) & (samples <= upper_bound), axis=1)
-        
-        # Filter samples
-        samples = samples[mask]
-        print(f"Removed {(~mask).sum()} outlier samples out of {len(mask)} total samples")
-
-    # Print parameter statistics
-    print(f"\nMCMC Parameter Statistics ({ligament_type}):")
-    print("-" * 50)
-    param_names = ['k', 'alpha', 'l_0', 'f_ref']
-    for i, param_name in enumerate(param_names):
-        mean_val = np.mean(samples[:, i])
-        std_val = np.std(samples[:, i])
-        gt_val = gt_params[param_name]
-        print(f"{param_name:>8}: Mean={mean_val:8.3f}, Std={std_val:8.3f}, GT={gt_val:8.3f}")
+    print(f"MCMC completed with {len(samples)} samples")
+    print(f"Acceptance rate: {acceptance_rate:.3f}")
     
-    # Calculate ground truth log-likelihood using KDE
-    try:
-        kde = gaussian_kde(samples.T)
-        gt_vector = np.array([gt_params[param] for param in param_names], dtype=np.float64)
-        gt_log_likelihood_kde = float(kde.logpdf(gt_vector))
-        print(f"\nGround truth log-likelihood (KDE): {gt_log_likelihood_kde:.3f}")
-    except Exception as e:
-        print(f"\nWarning: Could not calculate KDE log-likelihood: {e}")
-        gt_log_likelihood_kde = np.nan
+    # Visualize results
+    visualize_ligament_curves(config, samples, data)
+    visualize_theta_force_curves(config, samples, data)
     
-    # Calculate ground truth log-likelihood using posterior evaluation
-    try:
-        gt_vector = np.array([gt_params[param] for param in param_names], dtype=np.float64)
-        gt_log_likelihood_posterior = float(sampler.log_probability(gt_vector, length, relative_force, function, config['data']['sigma_noise']))
-        print(f"Ground truth log-probability (posterior): {gt_log_likelihood_posterior:.3f}")
-    except Exception as e:
-        print(f"Warning: Could not calculate posterior log-probability: {e}")
-        gt_log_likelihood_posterior = np.nan
-    
-    # Prepare return data
-    result_data = {
+    return {
         'cov_matrix': cov_matrix,
         'std_params': std_params,
         'samples': samples,
-        'acceptance_rate': acceptance_rate,
-        'optimized_params': params,
-        'gt_params': gt_params,
-        'reference_point': reference_point,
-        'initial_loss': initial_loss,
-        'final_loss': final_loss,
-        'gt_log_likelihood_kde': gt_log_likelihood_kde,
-        'gt_log_likelihood_posterior': gt_log_likelihood_posterior,
-        'function': function,
-        'sampler': sampler,
-        'theta_stats': {
-            'max_theta': max_theta,
-            'min_theta': min_theta,
-            'lowest_force_theta': lowest_force_theta
-        },
-        'data': {
-            'length': length,
-            'force': force,
-            'relative_force': relative_force
-        }
+        'acceptance_rate': acceptance_rate
     }
-    
-    return result_data
 
 def main(config, constraints_config):
     from src.ligament_models.constraints import ConstraintManager
     constraint_manager_mcl = ConstraintManager(constraints_config=constraints_config['blankevoort_mcl'])
     constraint_manager_lcl = ConstraintManager(constraints_config=constraints_config['blankevoort_lcl'])
+    constraint_manager = (constraint_manager_mcl, constraint_manager_lcl)
+    
+    data = collect_data(config)
+    
+    result = analyse_data(config, data, constraint_manager)
+    return result
 
+def collect_data(config):
     lig_left = BlankevoortFunction(config['blankevoort_lcl'])
     lig_right = BlankevoortFunction(config['blankevoort_mcl'])
-    model = KneeModel(config['mechanics'], lig_left, lig_right, log=False)
     
-    solutions = model.solve()
-    # model.plot_model(show_forces=True)
-    # plt.show()
-
-    applied_force = []
-    applied_moment = []
-
-    length_estimates_a = [] # LCL
-    force_known_a = []
-    force_estimated_a = []
-    moment_known_a = []
-
-    length_estimates_b = [] # MCL
-    force_known_b = []
-    force_estimated_b = []
-    moment_known_b = []
+    # Initialize data collection lists
+    data_lists = {
+        'applied_force': [], 'applied_moment': [],
+        'length_known_a': [], 'force_known_a': [], 'moment_known_a': [],  # LCL
+        'length_known_b': [], 'force_known_b': [], 'moment_known_b': [],  # MCL
+        'thetas': []  # Store thetas for visualization
+    }
+    moment_limit = 12_000  # In N(mm)
     
-    # Get reference forces at theta=0
-    mechanics = config['mechanics'].copy()
-    mechanics['theta'] = 0
-    model = KneeModel(mechanics, lig_left, lig_right, log=False)
-    solutions = model.solve()
-    reference_point_lcl = float(solutions['lig_springA_force'].get_force().norm())
-    reference_point_mcl = float(solutions['lig_springB_force'].get_force().norm())
-
-    theta_list = []
-
-    theta = 0
-    moment_limit = 12_000 # In N(mm)
-    
-    # Collect data for both ligaments over theta range
-    print("\nCollecting ligament data over theta range...")
-    while True:
+    def collect_at_theta(theta):
+        """Helper function to collect data at a specific theta value"""
         mechanics = config['mechanics'].copy()
         mechanics['theta'] = theta
         model = KneeModel(mechanics, lig_left, lig_right, log=False)
         solutions = model.solve()
-
-        moment = float(solutions['applied_force'].get_moment().norm())
-        if moment > moment_limit:
-            print(f"Moment too high at theta: {theta}")
-            break
-        else:
-            print(f"Theta: {np.degrees(theta)}, force: {solutions['applied_force'].get_force().norm()}, moment: {moment}")
-            applied_force.append(float(solutions['applied_force'].get_force().norm()))
-            applied_moment.append(moment)
-
-            length_estimates_a.append(float(solutions['lig_springA_length']))
-            force_known_a.append(float(solutions['lig_springA_force'].get_force().norm()))
-            force_estimated_a.append(float(solutions['estimated_lig_springA_force']))   
-
-            length_estimates_b.append(float(solutions['lig_springB_length']))
-            force_known_b.append(float(solutions['lig_springB_force'].get_force().norm()))
-            force_estimated_b.append(float(solutions['estimated_lig_springB_force']))
-
-            # Calculate ligament moments
-            contact_point = model.knee_joint.get_contact_point(theta=theta)
-            
-            # Calculate moment arms for ligaments (distance from contact point to ligament attachment)
-            lig_force_a = solutions['lig_springA_force'].get_force()
-            lig_force_b = solutions['lig_springB_force'].get_force()
-            
-            # Moment = r x F, where r is from contact point to force application point
-            # We'll use the tibia attachment point for the moment arm
-            r_a = model.lig_bottom_pointA.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
-            r_b = model.lig_bottom_pointB.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
-            
-            # Calculate moment magnitude (in 2D, cross product gives z-component)
-            moment_a = float((r_a.cross(lig_force_a.convert_to_frame(model.tibia_frame))).norm())
-            moment_b = float((r_b.cross(lig_force_b.convert_to_frame(model.tibia_frame))).norm())
-            
-            moment_known_a.append(moment_a)
-            moment_known_b.append(moment_b)
-
-            theta_list.append(theta)
-
-            theta += 0.1 * np.pi/180
-
-    theta = 0
-    while True:
-        mechanics = config['mechanics'].copy()
-        mechanics['theta'] = theta
-        model = KneeModel(mechanics, lig_left, lig_right, log=False)
-        solutions = model.solve()
-
-        moment = float(solutions['applied_force'].get_moment().norm())
-        if moment > moment_limit:
-            print(f"Moment too high at theta: {theta}, moment: {moment}")
-            break
-        else:
-            print(f"Theta: {np.degrees(theta)}, force: {solutions['applied_force'].get_force().norm()}, moment: {moment}")
-            applied_force.append(float(solutions['applied_force'].get_force().norm()))
-            applied_moment.append(moment)
-            
-            length_estimates_a.append(float(solutions['lig_springA_length']))
-            force_known_a.append(float(solutions['lig_springA_force'].get_force().norm()))
-            force_estimated_a.append(float(solutions['estimated_lig_springA_force']))
-
-            length_estimates_b.append(float(solutions['lig_springB_length']))
-            force_known_b.append(float(solutions['lig_springB_force'].get_force().norm()))
-            force_estimated_b.append(float(solutions['estimated_lig_springB_force']))
-
-            # Calculate ligament moments
-            contact_point = model.knee_joint.get_contact_point(theta=theta)
-            
-            # Calculate moment arms for ligaments
-            lig_force_a = solutions['lig_springA_force'].get_force()
-            lig_force_b = solutions['lig_springB_force'].get_force()
-            
-            # Moment = r x F
-            r_a = model.lig_bottom_pointA.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
-            r_b = model.lig_bottom_pointB.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
-            
-            # Calculate moment magnitude
-            moment_a = float((r_a.cross(lig_force_a.convert_to_frame(model.tibia_frame))).norm())
-            moment_b = float((r_b.cross(lig_force_b.convert_to_frame(model.tibia_frame))).norm())
-            
-            moment_known_a.append(moment_a)
-            moment_known_b.append(moment_b)
-
-            theta_list.append(theta)
+        model.plot_model(show_forces=True)
+        plt.show()
         
-            theta -= 1/3 * np.pi/180
+        moment = float(solutions['applied_force'].get_moment().norm())
+        if moment > moment_limit:
+            return False, moment
+        
+        print(f"Theta: {np.degrees(theta):.2f}°, force: {solutions['applied_force'].get_force().norm():.1f}, moment: {moment:.1f}")
+        
+        # Collect basic data
+        data_lists['applied_force'].append(float(solutions['applied_force'].get_force().norm()))
+        data_lists['applied_moment'].append(moment)
+        data_lists['length_known_a'].append(float(solutions['lig_springA_length']))
+        data_lists['force_known_a'].append(float(solutions['lig_springA_force'].get_force().norm()))
+        data_lists['length_known_b'].append(float(solutions['lig_springB_length']))
+        data_lists['force_known_b'].append(float(solutions['lig_springB_force'].get_force().norm()))
+        
+        # Calculate ligament moments
+        contact_point = model.knee_joint.get_contact_point(theta=theta)
+        lig_force_a = solutions['lig_springA_force'].get_force()
+        lig_force_b = solutions['lig_springB_force'].get_force()
+        
+        r_a = model.lig_bottom_pointA.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
+        r_b = model.lig_bottom_pointB.convert_to_frame(model.tibia_frame) - contact_point.convert_to_frame(model.tibia_frame)
+        
+        moment_a = float((r_a.cross(lig_force_a.convert_to_frame(model.tibia_frame))).norm())
+        moment_b = float((r_b.cross(lig_force_b.convert_to_frame(model.tibia_frame))).norm())
+        
+        data_lists['moment_known_a'].append(moment_a)
+        data_lists['moment_known_b'].append(moment_b)
+        data_lists['thetas'].append(theta)
+        
+        return True, moment
     
-    # Process LCL
-    gt_params_lcl = config['blankevoort_lcl'].copy()
-    gt_params_lcl['f_ref'] = reference_point_lcl
-    result_lcl = process_ligament('LCL', length_estimates_a, force_estimates_a, theta_list, 
-                                   gt_params_lcl, constraint_manager_lcl, config)
+    # Collect data in both directions from theta=0
+    print("\nCollecting ligament data over theta range...")
     
-    # Process MCL
-    gt_params_mcl = config['blankevoort_mcl'].copy()
-    gt_params_mcl['f_ref'] = reference_point_mcl
-    result_mcl = process_ligament('MCL', length_estimates_b, force_estimates_b, theta_list, 
-                                   gt_params_mcl, constraint_manager_mcl, config)
+    # Positive direction (increasing theta)
+    theta = 0
+    while True:
+        success, moment = collect_at_theta(theta)
+        if not success:
+            print(f"Moment too high at theta: {np.degrees(theta):.2f}°")
+            break
+        theta += 0.3 * np.pi/180
     
-    return {'LCL': result_lcl, 'MCL': result_mcl}
+    # Negative direction (decreasing theta) - skip theta=0 to avoid duplicate
+    theta = -0.3 * np.pi/180
+    while True:
+        success, moment = collect_at_theta(theta)
+        if not success:
+            print(f"Moment too high at theta: {np.degrees(theta):.2f}°")
+            break
+        theta -= 0.3 * np.pi/180
+    
+    return data_lists
+
+def visualize_ligament_curves(config, samples, data):
+    """Plot MCL and LCL tension vs elongation curves for ground truth, MCMC samples, and mean."""
+    
+    # Ground truth parameters
+    ground_truth_lcl = config['blankevoort_lcl']
+    ground_truth_mcl = config['blankevoort_mcl']
+    
+    # Create ground truth ligament functions
+    gt_lcl_func = BlankevoortFunction(np.array([ground_truth_lcl['k'], ground_truth_lcl['alpha'], 
+                                                ground_truth_lcl['l_0'], ground_truth_lcl['f_ref']]))
+    gt_mcl_func = BlankevoortFunction(np.array([ground_truth_mcl['k'], ground_truth_mcl['alpha'], 
+                                                ground_truth_mcl['l_0'], ground_truth_mcl['f_ref']]))
+    
+    # Create elongation range for plotting
+    elongation_range = np.linspace(0, 150, 200)  # mm
+    
+    # Calculate ground truth curves
+    gt_lcl_tension = gt_lcl_func(elongation_range)
+    gt_mcl_tension = gt_mcl_func(elongation_range)
+    
+    # Calculate MCMC sample curves
+    sample_lcl_tensions = []
+    sample_mcl_tensions = []
+    
+    for sample in samples[::10]:  # Subsample for visualization (every 10th sample)
+        lcl_params = sample[4:]  # Last 4 parameters are LCL
+        mcl_params = sample[:4]  # First 4 parameters are MCL
+        
+        lcl_func = BlankevoortFunction(lcl_params, compile_derivatives=False)
+        mcl_func = BlankevoortFunction(mcl_params, compile_derivatives=False)
+        
+        sample_lcl_tensions.append(lcl_func(elongation_range))
+        sample_mcl_tensions.append(mcl_func(elongation_range))
+    
+    # Calculate mean sample
+    mean_lcl_params = np.mean(samples[:, 4:], axis=0)
+    mean_mcl_params = np.mean(samples[:, :4], axis=0)
+    
+    mean_lcl_func = BlankevoortFunction(mean_lcl_params, compile_derivatives=False)
+    mean_mcl_func = BlankevoortFunction(mean_mcl_params, compile_derivatives=False)
+    
+    mean_lcl_tension = mean_lcl_func(elongation_range)
+    mean_mcl_tension = mean_mcl_func(elongation_range)
+    
+    # Create plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # LCL plot
+    ax1.plot(elongation_range, gt_lcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
+    ax1.plot(elongation_range, mean_lcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
+    
+    for i, tension in enumerate(sample_lcl_tensions[:50]):  # Show first 50 samples
+        ax1.plot(elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
+    
+    ax1.set_xlabel('Elongation (mm)')
+    ax1.set_ylabel('Tension (N)')
+    ax1.set_title('LCL Tension vs Elongation')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # MCL plot
+    ax2.plot(elongation_range, gt_mcl_tension, 'k-', linewidth=3, label='Ground Truth', alpha=0.8)
+    ax2.plot(elongation_range, mean_mcl_tension, 'r--', linewidth=2, label='Mean MCMC Sample')
+    
+    for i, tension in enumerate(sample_mcl_tensions[:50]):  # Show first 50 samples
+        ax2.plot(elongation_range, tension, 'b-', alpha=0.1, linewidth=0.5)
+    
+    ax2.set_xlabel('Elongation (mm)')
+    ax2.set_ylabel('Tension (N)')
+    ax2.set_title('MCL Tension vs Elongation')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('ligament_curves.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def visualize_theta_force_curves(config, samples, data):
+    """Plot theta vs applied force with MCMC samples."""
+    
+    # Ground truth data
+    all_thetas = np.array(data['thetas'])
+    all_forces = np.array(data['applied_force'])
+    
+    # Calculate MCMC sample predictions
+    knee_config = config['mechanics'].copy()
+    sample_predictions = []
+    
+    for sample in samples[::20]:  # Subsample for visualization
+        lcl_params = sample[4:]  # Last 4 parameters are LCL
+        mcl_params = sample[:4]  # First 4 parameters are MCL
+        
+        lcl_func = BlankevoortFunction(lcl_params, compile_derivatives=False)
+        mcl_func = BlankevoortFunction(mcl_params, compile_derivatives=False)
+        
+        # Create model with sample parameters
+        model = KneeModel(knee_config, lcl_func, mcl_func, log=False)
+        
+        sample_forces = []
+        for theta in all_thetas:
+            model.set_theta(theta)
+            solutions = model.solve()
+            sample_forces.append(float(solutions['applied_force'].get_force().norm()))
+        
+        sample_predictions.append(sample_forces)
+    
+    # Calculate mean prediction
+    mean_lcl_params = np.mean(samples[:, 4:], axis=0)
+    mean_mcl_params = np.mean(samples[:, :4], axis=0)
+    
+    mean_lcl_func = BlankevoortFunction(mean_lcl_params, compile_derivatives=False)
+    mean_mcl_func = BlankevoortFunction(mean_mcl_params, compile_derivatives=False)
+    
+    mean_model = KneeModel(knee_config, mean_lcl_func, mean_mcl_func, log=False)
+    mean_forces = []
+    for theta in all_thetas:
+        mean_model.set_theta(theta)
+        solutions = mean_model.solve()
+        mean_forces.append(float(solutions['applied_force'].get_force().norm()))
+    
+    # Create plot
+    plt.figure(figsize=(12, 8))
+    
+    # Plot ground truth
+    plt.plot(np.degrees(all_thetas), all_forces, 'ko-', linewidth=3, markersize=6, 
+             label='Ground Truth', alpha=0.8)
+    
+    # Plot mean prediction
+    plt.plot(np.degrees(all_thetas), mean_forces, 'r--', linewidth=2, 
+             label='Mean MCMC Prediction')
+    
+    # Plot sample predictions
+    for i, forces in enumerate(sample_predictions[:100]):  # Show first 100 samples
+        plt.plot(np.degrees(all_thetas), forces, 'b-', alpha=0.1, linewidth=0.5)
+    
+    plt.xlabel('Theta (degrees)')
+    plt.ylabel('Applied Force (N)')
+    plt.title('Theta vs Applied Force: Ground Truth vs MCMC Samples')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('theta_force_curves.png', dpi=300, bbox_inches='tight')
+    plt.show()
 
 if __name__ == "__main__":
     with open('config.yaml', 'r') as f:

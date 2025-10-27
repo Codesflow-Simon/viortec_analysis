@@ -197,8 +197,8 @@ class CompleteMCMCSampler(BaseSampler):
         
         return total_log_prob
 
-    def initial_walkers(self, n_walkers, std=0.1):
-        """Initialize walkers in unconstrained space around reasonable starting values."""
+    def initial_walkers(self, n_walkers, std=0.1, ls_result=None):
+        """Initialize walkers in unconstrained space around reasonable starting values or least squares results."""
         mcl_constraints_manager = self.constraint_manager[0]
         lcl_constraints_manager = self.constraint_manager[1]
 
@@ -212,8 +212,17 @@ class CompleteMCMCSampler(BaseSampler):
         
         initial_positions = np.zeros((n_walkers, total_params))
 
-        mcl_start_values = [33.5, 0.06, 90.0, 0.0]  # From config.yaml
-        lcl_start_values = [42.8, 0.06, 60.0, 0.0]  # From config.yaml
+        # Use least squares results if available, otherwise use default values
+        if ls_result is not None:
+            mcl_start_values = ls_result['mcl_params']
+            lcl_start_values = ls_result['lcl_params']
+            print(f"Using least squares results for MCMC initialization:")
+            print(f"  MCL: {mcl_start_values}")
+            print(f"  LCL: {lcl_start_values}")
+        else:
+            mcl_start_values = [33.5, 0.06, 90.0, 0.0]  # From config.yaml
+            lcl_start_values = [42.8, 0.06, 60.0, 0.0]  # From config.yaml
+            print("Using default values for MCMC initialization")
         
         # Initialize walkers for MCL parameters
         for i in range(n_mcl_params):
@@ -222,12 +231,12 @@ class CompleteMCMCSampler(BaseSampler):
                 # Fixed parameter - set all walkers to the same value
                 initial_positions[:, i] = lower
             else:
-                # Variable parameter - start near reasonable values with small noise
+                # Variable parameter - start near starting values with small noise
                 start_val = mcl_start_values[i]
                 # Ensure start value is within bounds
                 start_val = np.clip(start_val, lower, upper)
                 # Add small random noise around the starting value
-                noise_scale = min(std * (upper - lower), 0.01 * (upper - lower))  # Reduced from 0.1 to 0.01
+                noise_scale = min(std * (upper - lower), 0.01 * (upper - lower))
                 initial_positions[:, i] = start_val + np.random.normal(0, noise_scale, n_walkers)
                 # Clip to bounds
                 initial_positions[:, i] = np.clip(initial_positions[:, i], lower, upper)
@@ -239,13 +248,20 @@ class CompleteMCMCSampler(BaseSampler):
                 # Fixed parameter - set all walkers to the same value
                 initial_positions[:, i + n_mcl_params] = lower
             else:
-                # Variable parameter - sample uniformly
-                initial_positions[:, i + n_mcl_params] = np.random.uniform(lower, upper, n_walkers)
+                # Variable parameter - start near starting values with small noise
+                start_val = lcl_start_values[i]
+                # Ensure start value is within bounds
+                start_val = np.clip(start_val, lower, upper)
+                # Add small random noise around the starting value
+                noise_scale = min(std * (upper - lower), 0.01 * (upper - lower))
+                initial_positions[:, i + n_mcl_params] = start_val + np.random.normal(0, noise_scale, n_walkers)
+                # Clip to bounds
+                initial_positions[:, i + n_mcl_params] = np.clip(initial_positions[:, i + n_mcl_params], lower, upper)
             
         return initial_positions
 
     def initial_walkers_screened(self, n_walkers, std=0.1, 
-                                screen_percentage=0.1, thetas=None, applied_forces=None, sigma_noise=1e-3):
+                                screen_percentage=0.1, thetas=None, applied_forces=None, sigma_noise=1e-3, ls_result=None):
         """
         Initialize walkers by screening candidates and selecting the highest probability ones.
         
@@ -256,10 +272,11 @@ class CompleteMCMCSampler(BaseSampler):
             thetas: Input data for likelihood evaluation
             applied_forces: Target data for likelihood evaluation
             sigma_noise: Noise standard deviation
+            ls_result: Least squares optimization results for better initialization
         """
         # Generate many more candidates than needed
         n_candidates = int(n_walkers / screen_percentage)
-        candidate_positions = self.initial_walkers(n_candidates, std)
+        candidate_positions = self.initial_walkers(n_candidates, std, ls_result)
         
         # Evaluate log-probability for all candidates
         log_probs = np.array([
@@ -288,15 +305,18 @@ class CompleteMCMCSampler(BaseSampler):
         
         return candidate_positions[selected_indices]
 
-    def sample(self, thetas, applied_forces, lcl_lengths, mcl_lengths, sigma_noise=1e-3, random_state=None, **kwargs):
+    def sample(self, thetas, applied_forces, lcl_lengths, mcl_lengths, sigma_noise=1e-3, random_state=None, ls_result=None, **kwargs):
         """
         Generate samples using MCMC.
         
         Args:
             thetas: Input data points (knee angles)
             applied_forces: Target data points (applied forces)
+            lcl_lengths: LCL lengths for each theta
+            mcl_lengths: MCL lengths for each theta
             sigma_noise: Noise standard deviation
             random_state: Random state for reproducibility
+            ls_result: Least squares optimization results for better initialization
             **kwargs: Additional parameters (can override n_walkers, n_steps, n_burnin)
             
         Returns:
@@ -339,10 +359,11 @@ class CompleteMCMCSampler(BaseSampler):
             initial_positions = self.initial_walkers_screened(
                 n_walkers, 
                 screen_percentage=screen_percentage,
-                thetas=thetas, applied_forces=applied_forces, sigma_noise=sigma_noise
+                thetas=thetas, applied_forces=applied_forces, sigma_noise=sigma_noise,
+                ls_result=ls_result
             )
         else:
-            initial_positions = self.initial_walkers(n_walkers)
+            initial_positions = self.initial_walkers(n_walkers, ls_result=ls_result)
         
         # Optional: return initial positions for visualization (disable MCMC)
         if kwargs.get('visualize_only', False):
@@ -414,16 +435,16 @@ class CompleteMCMCSampler(BaseSampler):
         # For each theta, update angle and solve for predicted applied force
         for i,theta in enumerate(thetas):
             
-            mcl_length = self.mcl_lengths[i] # Ligament a
-            lcl_length = self.lcl_lengths[i] # Ligament b
+            mcl_length = self.mcl_lengths[i] # Ligament b
+            lcl_length = self.lcl_lengths[i] # Ligament a
 
             # Get ligament tensions using the model's ligament functions
-            mcl_tension = float(knee_model.lig_function_right(mcl_length))
-            lcl_tension = float(knee_model.lig_function_left(lcl_length))
+            mcl_tension = float(knee_model.lig_function_left(mcl_length))
+            lcl_tension = float(knee_model.lig_function_right(lcl_length))
 
             contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
-            mcl_direction = knee_model.lig_springA.get_force_direction_on_p2()
-            lcl_direction = knee_model.lig_springB.get_force_direction_on_p2()
+            mcl_direction = knee_model.lig_springB.get_force_direction_on_p2()
+            lcl_direction = knee_model.lig_springA.get_force_direction_on_p2()
 
             mcl_force_vector =  abs(mcl_tension) * mcl_direction
             lcl_force_vector =  abs(lcl_tension) * lcl_direction

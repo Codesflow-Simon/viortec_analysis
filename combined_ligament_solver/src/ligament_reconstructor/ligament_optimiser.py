@@ -284,13 +284,13 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
                 knee_model.knee_joint.theta = theta
                 
                 # Get ligament tensions using the model's ligament functions
-                mcl_tension = float(knee_model.lig_function_right(mcl_lengths[i]))
-                lcl_tension = float(knee_model.lig_function_left(lcl_lengths[i]))
+                mcl_tension = float(knee_model.lig_function_left(mcl_lengths[i]))
+                lcl_tension = float(knee_model.lig_function_right(lcl_lengths[i]))
                 
                 # Calculate moment arms and applied force (same as MCMC)
                 contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
-                mcl_direction = knee_model.lig_springA.get_force_direction_on_p2()
-                lcl_direction = knee_model.lig_springB.get_force_direction_on_p2()
+                mcl_direction = knee_model.lig_springB.get_force_direction_on_p1()
+                lcl_direction = knee_model.lig_springA.get_force_direction_on_p1()
                 
                 mcl_force_vector = abs(mcl_tension) * mcl_direction
                 lcl_force_vector = abs(lcl_tension) * lcl_direction
@@ -364,8 +364,8 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
         return mcmc_like_loss(params) + constraint_loss(params)
     
     # Initial guess - use reasonable starting values
-    mcl_start = [33.5, 0.06, 90.0, 0.0]  # From config.yaml
-    lcl_start = [42.8, 0.06, 60.0, 0.0]  # From config.yaml
+    mcl_start = [40, 0.06, 90.0, 0.0]
+    lcl_start = [60, 0.06, 60.0, 0.0]
     initial_params = np.array(mcl_start + lcl_start)
     
     print(f"Starting least squares optimization...")

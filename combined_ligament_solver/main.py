@@ -44,11 +44,34 @@ def analyse_data(config, data, constraint_manager):
     print("=" * 50)
     
     sampler = CompleteMCMCSampler(knee_config, constraint_manager)
-    cov_matrix, std_params, samples, acceptance_rate = sampler.sample(thetas, applied_forces, lcl_lengths=pre_compute_lcl_lengths, 
-        mcl_lengths=pre_compute_mcl_lengths, use_screening=True, screen_percentage=0.1, sigma_noise=1e3)
+    cov_matrix, std_params, samples, acceptance_rate = sampler.sample(
+        thetas, applied_forces, 
+        lcl_lengths=pre_compute_lcl_lengths, 
+        mcl_lengths=pre_compute_mcl_lengths, 
+        use_screening=True, 
+        screen_percentage=0.1, 
+        sigma_noise=1e3,
+        ls_result=ls_result
+    )
     
     print(f"MCMC completed with {len(samples)} samples")
     print(f"Acceptance rate: {acceptance_rate:.3f}")
+    
+    # Compare results
+    print("\n" + "=" * 50)
+    print("COMPARISON: LEAST SQUARES vs MCMC")
+    print("=" * 50)
+    print(f"Least squares RMSE: {ls_result['rmse']:.2f}")
+    print(f"Least squares MAE:  {ls_result['mae']:.2f}")
+    
+    # Calculate MCMC mean parameters for comparison
+    mcmc_mcl_params = np.mean(samples[:, :4], axis=0)
+    mcmc_lcl_params = np.mean(samples[:, 4:], axis=0)
+    print(f"\nParameter comparison:")
+    print(f"MCL - LS: {ls_result['mcl_params']}")
+    print(f"MCL - MCMC mean: {mcmc_mcl_params}")
+    print(f"LCL - LS: {ls_result['lcl_params']}")
+    print(f"LCL - MCMC mean: {mcmc_lcl_params}")
     
     # Visualize results
     visualize_ligament_curves(config, samples, data, ls_result)
@@ -262,7 +285,6 @@ def visualize_ligament_curves(config, samples, data, ls_result=None):
     
     plt.tight_layout()
     plt.savefig('ligament_curves.png', dpi=300, bbox_inches='tight')
-    plt.show()
 
 def visualize_theta_force_curves(config, samples, data, ls_result=None):
     """Plot theta vs applied force with MCMC samples and least squares results."""

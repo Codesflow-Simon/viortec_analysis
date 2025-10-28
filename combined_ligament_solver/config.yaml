@@ -1,10 +1,6 @@
 data:
-  x_noise: 0
-  y_noise: 1
-  sigma_noise: 1
-  n_points: 200
-  x_min: 0.20 # milimeter domain
-  x_max: 0.30 
+  y_noise: 1e-2
+  sigma_noise: 1e+1
 
 blankevoort_mcl: # Right side (Right leg)
     k: 33.5 # N per mm
@@ -19,15 +15,15 @@ blankevoort_lcl: # Left side (right leg)
   f_ref: 0 # strain
 
 mechanics:
-    left_length: 63.1
-    right_length: 94.8
+    right_length: 63.1
+    left_length: 94.8
     femur_length: 50 # All lengths in mm
     femur_perp: 47 # Width of the femur
     tibia_perp: 47 # Needs to be the same as femur_perp
     tibia_para: 44 # Should be exactly twice the larger ball radius?
     application_length: 150 # Length of the application force in mm
     theta: 0 #radians, theta_sym
-    ball_distance: 17 # Distance between the center of the joint and the ball center
+    ball_distance_1: 17 # Distance between the center of the joint and the ball center
     ball_distance_2: 18 # Distance between the center of the joint and the other ball center
     ball_radius_1: 22 # Radius of the left ball
     ball_radius_2: 22

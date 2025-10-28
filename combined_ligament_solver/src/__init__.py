@@ -1,1 +1,1 @@
-# Combined Ligament Solver Package 
+# Models package for statics solver 

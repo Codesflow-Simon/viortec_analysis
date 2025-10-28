@@ -1,37 +1,22 @@
-from src.statics_solver.models.statics_model import KneeModel
-import yaml
-from matplotlib import pyplot as plt
+from src.statics_model import KneeModel
+from src.ligament_optimiser import least_squares_optimize_complete_model
+from src.mcmc_sampler import CompleteMCMCSampler
+from src.visualization import visualize_ligament_curves, visualize_theta_force_curves
 import numpy as np
-from src.ligament_reconstructor.ligament_optimiser import reconstruct_ligament, least_squares_optimize_complete_model
-from src.ligament_reconstructor.utils import get_params_from_config
-from src.ligament_models.blankevoort import BlankevoortFunction
-import json
-import pickle
-from datetime import datetime
-import os
-import csv
-from scipy.stats import gaussian_kde
-from src.ligament_reconstructor.mcmc_sampler import CompleteMCMCSampler
-from plotting_tools import visualize_ligament_curves, visualize_theta_force_curves
+import yaml
+import matplotlib.pyplot as plt
 
-def analyse_data(config, data, constraint_manager):
-    thetas = data['thetas']
-    applied_forces = data['applied_force']
 
-    # Pass knee configuration to sampler
-    knee_config = config['mechanics']
-
-    pre_compute_lcl_lengths = data['length_known_a']
-    pre_compute_mcl_lengths = data['length_known_b']
-
+def analyse_data(config, data, constraints_config):
     # Run least squares optimization first
     print("=" * 50)
     print("RUNNING LEAST SQUARES OPTIMIZATION")
     print("=" * 50)
     
     ls_result = least_squares_optimize_complete_model(
-        thetas, applied_forces, pre_compute_lcl_lengths, pre_compute_mcl_lengths,
-        constraint_manager, knee_config, sigma_noise=1e3
+        data['thetas'], data['measured_forces'], 
+        config['mechanics'],
+        constraints_config, sigma_noise=float(config['data']['sigma_noise'])
     )
     
     print(f"Least squares RMSE: {ls_result['rmse']:.2f}")
@@ -44,15 +29,9 @@ def analyse_data(config, data, constraint_manager):
     print("RUNNING MCMC SAMPLING")
     print("=" * 50)
     
-    sampler = CompleteMCMCSampler(knee_config, constraint_manager)
+    sampler = CompleteMCMCSampler(config['mechanics'], constraints_config)
     cov_matrix, std_params, samples, acceptance_rate = sampler.sample(
-        thetas, applied_forces, 
-        lcl_lengths=pre_compute_lcl_lengths, 
-        mcl_lengths=pre_compute_mcl_lengths, 
-        use_screening=True, 
-        screen_percentage=0.1, 
-        sigma_noise=1e3,
-        # ls_result=ls_result
+        data['thetas'], data['measured_forces'], sigma_noise=1e-2, ls_result=ls_result
     )
     
     print(f"MCMC completed with {len(samples)} samples")
@@ -77,6 +56,7 @@ def analyse_data(config, data, constraint_manager):
     # Visualize results
     visualize_ligament_curves(config, samples, data, ls_result)
     visualize_theta_force_curves(config, samples, data, ls_result)
+    plt.show()
     
     return {
         'cov_matrix': cov_matrix,
@@ -86,91 +66,76 @@ def analyse_data(config, data, constraint_manager):
         'least_squares_result': ls_result
     }
 
-def main(config, constraints_config):
-    from src.ligament_models.constraints import ConstraintManager
-    constraint_manager_mcl = ConstraintManager(constraints_config=constraints_config['blankevoort_mcl'])
-    constraint_manager_lcl = ConstraintManager(constraints_config=constraints_config['blankevoort_lcl'])
-    constraint_manager = (constraint_manager_mcl, constraint_manager_lcl)
-    
-    data = collect_data(config)
-    
-    result = analyse_data(config, data, constraint_manager)
-    return result
-
 def collect_data(config):
-    lig_left = BlankevoortFunction(config['blankevoort_mcl'])   # MCL on left
-    lig_right = BlankevoortFunction(config['blankevoort_lcl'])  # LCL on right
-    
     # Initialize data collection lists
     data_lists = {
-        'applied_force': [], 'applied_moment': [],
-        'length_known_a': [], 'force_known_a': [], 'moment_known_a': [],  # LCL (Spring A)
-        'length_known_b': [], 'force_known_b': [], 'moment_known_b': [],  # MCL (Spring B)
-        'thetas': []  # Store thetas for visualization
+        'thetas': [],
+        'applied_forces': [],
+        'mcl_lengths': [],
+        'lcl_lengths': [],
+        'mcl_forces': [],
+        'lcl_forces': [],
+        'moment_arms': [],
+        'mcl_moments': [],
+        'lcl_moments': [],
+        'application_moments': []
     }
     moment_limit = 12_000  # In N(mm)
     
-    def collect_at_theta(theta, knee_model):
-        """Helper function to collect data at a specific theta value"""
-        mechanics = config['mechanics'].copy()
-        mechanics['theta'] = theta
-        
-        solutions = knee_model.solve_applied(theta)
-        
-        moment = float(solutions['applied_force'].get_moment().norm())
-        if moment > moment_limit:
-            return False, moment
-        
-        print(f"Theta: {np.degrees(theta):.2f}°, force: {solutions['applied_force'].get_force().norm():.1f}, moment: {moment:.1f}")
-        
-        # Collect basic data
-        data_lists['applied_force'].append(float(solutions['applied_force'].get_force().norm()))
-        data_lists['applied_moment'].append(moment)
-        data_lists['length_known_a'].append(float(solutions['lig_springA_length']))
-        data_lists['force_known_a'].append(float(solutions['lig_springA_force'].get_force().norm()))
-        data_lists['length_known_b'].append(float(solutions['lig_springB_length']))
-        data_lists['force_known_b'].append(float(solutions['lig_springB_force'].get_force().norm()))
-        
-        # Calculate ligament moments
-        contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
-        lig_force_a = solutions['lig_springA_force'].get_force()
-        lig_force_b = solutions['lig_springB_force'].get_force()
-        
-        r_a = knee_model.lig_bottom_pointA.convert_to_frame(knee_model.tibia_frame) - contact_point.convert_to_frame(knee_model.tibia_frame)
-        r_b = knee_model.lig_bottom_pointB.convert_to_frame(knee_model.tibia_frame) - contact_point.convert_to_frame(knee_model.tibia_frame)
-        
-        moment_a = float((r_a.cross(lig_force_a.convert_to_frame(knee_model.tibia_frame))).norm())
-        moment_b = float((r_b.cross(lig_force_b.convert_to_frame(knee_model.tibia_frame))).norm())
-        
-        data_lists['moment_known_a'].append(moment_a)
-        data_lists['moment_known_b'].append(moment_b)
-        data_lists['thetas'].append(theta)
-        
-        return True, moment
+
+    mcl_params = config['blankevoort_mcl']
+    lcl_params = config['blankevoort_lcl']
     
     # Collect data in both directions from theta=0
     print("\nCollecting ligament data over theta range...")
     
     # Positive direction (increasing theta)
     theta = 0 * np.pi/180
+    increment = 0.3 * np.pi/180
     knee_model = KneeModel(config['mechanics'], log=False)
     knee_model.build_geometry()
 
     while True:
-        success, moment = collect_at_theta(theta, knee_model)
-        if not success:
-            print(f"Moment too high at theta: {np.degrees(theta):.2f}°")
+        result = knee_model.solve_applied([theta], mcl_params, lcl_params)
+        data_lists['applied_forces'].append(result['applied_forces'])
+        data_lists['thetas'].append(theta)
+        data_lists['mcl_lengths'].append(result['mcl_lengths'])
+        data_lists['lcl_lengths'].append(result['lcl_lengths'])
+        data_lists['mcl_forces'].append(result['mcl_forces'])
+        data_lists['lcl_forces'].append(result['lcl_forces'])
+        data_lists['moment_arms'].append(result['moment_arms'])
+        data_lists['mcl_moments'].append(result['mcl_moments'])
+        data_lists['lcl_moments'].append(result['lcl_moments'])
+        data_lists['application_moments'].append(result['application_moments'])
+        theta += increment
+        print(f"Theta: {np.degrees(theta)}, Force: {result['applied_forces']}, Moment: {result['application_moments']}")
+        if abs(result['application_moments']) > moment_limit:
             break
-        theta += 0.3 * np.pi/180
-    
-    # Negative direction (decreasing theta) - skip theta=0 to avoid duplicate
-    theta = -0.3 * np.pi/180
+
+    theta = -increment
     while True:
-        success, moment = collect_at_theta(theta, knee_model)
-        if not success:
-            print(f"Moment too high at theta: {np.degrees(theta):.2f}°")
+        result = knee_model.solve_applied([theta], mcl_params, lcl_params)
+        data_lists['applied_forces'].append(result['applied_forces'])
+        data_lists['thetas'].append(theta)
+        data_lists['mcl_lengths'].append(result['mcl_lengths'])
+        data_lists['lcl_lengths'].append(result['lcl_lengths'])
+        data_lists['mcl_forces'].append(result['mcl_forces'])
+        data_lists['lcl_forces'].append(result['lcl_forces'])
+        data_lists['moment_arms'].append(result['moment_arms'])
+        data_lists['mcl_moments'].append(result['mcl_moments'])
+        data_lists['lcl_moments'].append(result['lcl_moments'])
+        data_lists['application_moments'].append(result['application_moments'])
+        print(f"Theta: {np.degrees(theta)}, Force: {result['applied_forces']}, Moment: {result['application_moments']}")
+        theta -= increment
+        if abs(result['application_moments']) > moment_limit:
             break
-        theta -= 0.3 * np.pi/180
+
+    y_noise = float(config['data']['y_noise'])
+    # Ensure applied_forces is a numpy array and reshape to match noise shape
+    applied_forces = np.array(data_lists['applied_forces']).reshape(-1)
+    noise = np.random.normal(0, y_noise, size=applied_forces.shape)
+    measured_forces = applied_forces + noise
+    data_lists['measured_forces'] = measured_forces
 
     return data_lists
 
@@ -189,11 +154,13 @@ if __name__ == "__main__":
     
     for ref_strain_lcl in reference_strains_lcl:
         for ref_strain_mcl in reference_strains_mcl:
-            config['blankevoort_lcl']['l_0'] = config['mechanics']['left_length']/(ref_strain_lcl + 1)
-            config['blankevoort_mcl']['l_0'] = config['mechanics']['right_length']/(ref_strain_mcl + 1)
+            config['blankevoort_lcl']['l_0'] = config['mechanics']['right_length']/(ref_strain_lcl + 1)
+            config['blankevoort_mcl']['l_0'] = config['mechanics']['left_length']/(ref_strain_mcl + 1)
 
+            data = collect_data(config)
+            result = analyse_data(config, data, constraints_config)
             results.append({
                 'lcl_strain': ref_strain_lcl,
                 'mcl_strain': ref_strain_mcl,
-                'result': main(config, constraints_config)
+                'result': result
             })

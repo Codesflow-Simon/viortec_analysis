@@ -1,7 +1,7 @@
 from src.statics_model import KneeModel
 from src.ligament_optimiser import least_squares_optimize_complete_model
 from src.mcmc_sampler import CompleteMCMCSampler
-from src.visualization import visualize_ligament_curves, visualize_theta_force_curves
+from src.visualization import visualize_ligament_curves, visualize_theta_force_curves, visualize_parameter_marginals
 import numpy as np
 import yaml
 import matplotlib.pyplot as plt
@@ -56,6 +56,7 @@ def analyse_data(config, data, constraints_config):
     # Visualize results
     visualize_ligament_curves(config, samples, data, ls_result)
     visualize_theta_force_curves(config, samples, data, ls_result)
+    visualize_parameter_marginals(samples, ls_result, constraints_config)
     plt.show()
     
     return {

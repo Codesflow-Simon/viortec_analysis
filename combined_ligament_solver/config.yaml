@@ -1,18 +1,16 @@
 data:
-  y_noise: 1e-2
+  y_noise: 1e+1
   sigma_noise: 1e+1
 
 blankevoort_mcl: # Right side (Right leg)
     k: 33.5 # N per mm
     alpha: 0.06 # Transition length, at 6% strain
     l_0: 86.2
-    f_ref: 0 # strain
 
 blankevoort_lcl: # Left side (right leg)
   k: 42.8 # N per mm
   alpha: 0.06 # Transition length, at 6% strain
   l_0: 57.36 # Values to try: [57.36, 58.43, 59.53, 60.67, 61.86]
-  f_ref: 0 # strain
 
 mechanics:
     right_length: 63.1

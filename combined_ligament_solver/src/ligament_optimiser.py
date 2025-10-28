@@ -85,9 +85,9 @@ def least_squares_optimize_complete_model(thetas, applied_forces, knee_config, c
         Loss function similar to MCMC likelihood but for least squares optimization.
         Returns the negative log-likelihood (to minimize).
         """
-        # Split parameters into MCL (first 4) and LCL (last 4) parameters
-        mcl_params = params[:4]  # [k, alpha, l_0, f_ref]
-        lcl_params = params[4:]  # [k, alpha, l_0, f_ref]
+        # Split parameters into MCL (first 3) and LCL (last 3) parameters
+        mcl_params = params[:3]  # [k, alpha, l_0]
+        lcl_params = params[3:]  # [k, alpha, l_0]
         
         # Apply constraint clipping
         mcl_params = clip_params_to_bounds(mcl_params, bounds['blankevoort_mcl'])
@@ -102,14 +102,14 @@ def least_squares_optimize_complete_model(thetas, applied_forces, knee_config, c
     loss_func = lambda params: mcmc_like_loss(params, thetas, applied_forces)
 
     # Initial guess - use reasonable starting values
-    mcl_start = [40, 0.06, 90.0, 0.0]
-    lcl_start = [60, 0.06, 60.0, 0.0]
+    mcl_start = [40, 0.06, 90.0]
+    lcl_start = [60, 0.06, 60.0]
     initial_params = np.array(mcl_start + lcl_start)
     inital_loss = loss_func(initial_params)
 
     
-    mcl_gt = [33.5, 0.06, 89.43, 0]  # Ground truth MCL parameters from config
-    lcl_gt = [42.8, 0.06, 59.528, 0]  # Ground truth LCL parameters from config
+    mcl_gt = [33.5, 0.06, 89.43]  # Ground truth MCL parameters from config
+    lcl_gt = [42.8, 0.06, 59.528]  # Ground truth LCL parameters from config
     gt_params = np.array(mcl_gt + lcl_gt)
     gt_loss = loss_func(gt_params)
 
@@ -142,8 +142,8 @@ def least_squares_optimize_complete_model(thetas, applied_forces, knee_config, c
     print(f"Final loss: {result.fun}")
     
     # Extract results and clip to bounds
-    mcl_params = clip_params_to_bounds(result.x[:4], mcl_bounds)
-    lcl_params = clip_params_to_bounds(result.x[4:], lcl_bounds)
+    mcl_params = clip_params_to_bounds(result.x[:3], mcl_bounds)
+    lcl_params = clip_params_to_bounds(result.x[3:], lcl_bounds)
 
     predicted_forces = knee_model.solve_applied(thetas, mcl_params, lcl_params)['applied_forces']
     predicted_forces = np.array(predicted_forces).reshape(-1)

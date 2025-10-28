@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from src.statics_model import KneeModel, blankevoort_func
+from src.ligament_optimiser import parse_constraints
 
 
 def visualize_ligament_curves(config, samples, data, ls_result):
@@ -11,7 +12,7 @@ def visualize_ligament_curves(config, samples, data, ls_result):
 
     Args:
         config: Configuration dictionary
-        samples: MCMC samples (n_samples, 8) - first 4 are MCL, last 4 are LCL
+        samples: MCMC samples (n_samples, 6) - first 3 are MCL, last 3 are LCL
         data: Data dictionary containing 'thetas' and 'applied_forces'
         ls_result: Least squares optimization results
     """
@@ -19,11 +20,9 @@ def visualize_ligament_curves(config, samples, data, ls_result):
     knee_model = KneeModel(config['mechanics'], log=False)
     knee_model.build_geometry()
     
-    # Get ground truth parameters from config
-    mcl_gt = [33.5, 0.06, 89.43, 0]  # Ground truth MCL parameters
-    lcl_gt = [42.8, 0.06, 59.528, 0]  # Ground truth LCL parameters
-    
-    # Get least squares parameters
+    # Get ground truth parameters (3-param) and LS params
+    mcl_gt = [33.5, 0.06, 89.43]
+    lcl_gt = [42.8, 0.06, 59.528]
     mcl_ls = ls_result['mcl_params']
     lcl_ls = ls_result['lcl_params']
     
@@ -101,7 +100,7 @@ def visualize_ligament_curves(config, samples, data, ls_result):
 
     # MCMC MCL samples
     for sample in samples:
-        mcl_params = sample[:4]
+        mcl_params = sample[:3]
         forces_mcmc_mcl = blankevoort_func(mcl_lengths, mcl_params)
         bx1.plot(mcl_lengths, forces_mcmc_mcl, 'r-', alpha=0.1, linewidth=0.6)
     bx1.legend()
@@ -116,7 +115,7 @@ def visualize_ligament_curves(config, samples, data, ls_result):
     bx2.plot(lcl_lengths, forces_ls_lcl, 'b.-', linewidth=2, label='Least Squares')
 
     for sample in samples:
-        lcl_params = sample[4:]
+        lcl_params = sample[3:]
         forces_mcmc_lcl = blankevoort_func(lcl_lengths, lcl_params)
         bx2.plot(lcl_lengths, forces_mcmc_lcl, 'r-', alpha=0.1, linewidth=0.6)
     bx2.legend()
@@ -125,13 +124,72 @@ def visualize_ligament_curves(config, samples, data, ls_result):
     plt.tight_layout()
 
 
+def visualize_parameter_marginals(samples, ls_result=None, constraints_config=None):
+    """Plot marginal distributions of MCMC parameters (6D: 3 MCL + 3 LCL).
+
+    Args:
+        samples: ndarray of shape (n_samples, 6)
+        ls_result: optional dict with 'mcl_params' and 'lcl_params' to overlay LS.
+        constraints_config: optional constraints config for bounds.
+    """
+    if samples is None or len(samples) == 0:
+        return
+
+    params = np.asarray(samples)
+    if params.ndim != 2 or params.shape[1] != 6:
+        return
+
+    titles = [
+        'MCL k', 'MCL alpha', 'MCL l_0',
+        'LCL k', 'LCL alpha', 'LCL l_0'
+    ]
+
+    fig, axes = plt.subplots(2, 3, figsize=(12, 6))
+    axes = axes.ravel()
+
+    # Ground truth parameters (3-parameter model)
+    gt_vals = np.array([33.5, 0.06, 89.43, 42.8, 0.06, 59.528])
+    
+    ls_vals = None
+    bounds_list = None
+    if ls_result is not None:
+        ls_vals = np.concatenate([np.asarray(ls_result['mcl_params']), np.asarray(ls_result['lcl_params'])])
+    if constraints_config is not None:
+        bounds = parse_constraints(constraints_config)
+        mcl_bounds = bounds['blankevoort_mcl']
+        lcl_bounds = bounds['blankevoort_lcl']
+        bounds_list = mcl_bounds + lcl_bounds
+
+    for i in range(6):
+        ax = axes[i]
+        ax.hist(params[:, i], bins=40, color='r', alpha=0.3, density=True)
+        
+        # Add ground truth line
+        ax.axvline(gt_vals[i], color='g', linestyle='-', linewidth=2, alpha=0.8, label='GT' if i == 0 else "")
+        
+        # Add least squares line
+        if ls_vals is not None:
+            ax.axvline(ls_vals[i], color='b', linestyle='--', linewidth=2, alpha=0.8, label='LS' if i == 0 else "")
+        
+        if bounds_list is not None:
+            lower, upper = bounds_list[i]
+            ax.set_xlim(lower, upper)
+        ax.set_title(titles[i])
+        ax.grid(True, alpha=0.2)
+        
+        # Add legend only to first subplot
+        if i == 0:
+            ax.legend()
+
+    plt.tight_layout()
+
 def visualize_theta_force_curves(config, samples, data, ls_result):
     """
     Create applied forces vs theta plots.
     
     Args:
         config: Configuration dictionary
-        samples: MCMC samples (n_samples, 8) - first 4 are MCL, last 4 are LCL
+        samples: MCMC samples (n_samples, 6) - first 3 are MCL, last 3 are LCL
         data: Data dictionary containing thetas and applied_forces
         ls_result: Least squares optimization results
     """
@@ -139,9 +197,7 @@ def visualize_theta_force_curves(config, samples, data, ls_result):
     knee_model = KneeModel(config['mechanics'], log=False)
     knee_model.build_geometry()
     
-    # Get ground truth parameters from config
-    mcl_gt = [33.5, 0.06, 89.43, 0]  # Ground truth MCL parameters
-    lcl_gt = [42.8, 0.06, 59.528, 0]  # Ground truth LCL parameters
+    # No GT curve; show measured forces instead
     
     # Get least squares parameters
     mcl_ls = ls_result['mcl_params']
@@ -149,7 +205,7 @@ def visualize_theta_force_curves(config, samples, data, ls_result):
     
     # Get data and ensure they are numpy arrays
     thetas = np.asarray(data['thetas'])
-    applied_forces = np.asarray(data['applied_forces'])
+    applied_forces = np.asarray(data['measured_forces'])
     
     # Sort theta values for proper line plotting
     theta_sorted_indices = np.argsort(thetas)
@@ -162,10 +218,10 @@ def visualize_theta_force_curves(config, samples, data, ls_result):
     plt.xlabel('Theta (rad)')
     plt.ylabel('Applied Force (N)')
     
-    # Ground truth curve
-    gt_result = knee_model.solve_applied(thetas_sorted, mcl_gt, lcl_gt)
-    gt_forces = np.array(gt_result['applied_forces']).reshape(-1)
-    plt.plot(thetas_sorted, gt_forces, 'g--', linewidth=2, label='Ground Truth')
+    # Measured forces as curve (GT + noise)
+    measured_forces = np.asarray(data['applied_forces']).reshape(-1)
+    measured_sorted = measured_forces[theta_sorted_indices]
+    plt.plot(thetas_sorted, measured_sorted, 'g--', linewidth=2, label='Measured')
     
     # Least squares curve
     ls_result_curve = knee_model.solve_applied(thetas_sorted, mcl_ls, lcl_ls)
@@ -174,8 +230,8 @@ def visualize_theta_force_curves(config, samples, data, ls_result):
     
     # MCMC samples
     for i, sample in enumerate(samples):
-        mcl_params = sample[:4]
-        lcl_params = sample[4:]
+        mcl_params = sample[:3]
+        lcl_params = sample[3:]
         mcmc_result = knee_model.solve_applied(thetas_sorted, mcl_params, lcl_params)
         mcmc_forces = np.array(mcmc_result['applied_forces']).reshape(-1)
         plt.plot(thetas_sorted, mcmc_forces, 'r-', alpha=0.1, linewidth=0.5)

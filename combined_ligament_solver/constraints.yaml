@@ -6,7 +6,6 @@ blankevoort_mcl:
     k: 0
     alpha: 1
     l_0: 2
-    f_ref: 3
   constraints:
     k:
       type: between
@@ -23,18 +22,12 @@ blankevoort_mcl:
       lower: 86.2
       upper: 94.8
       description: "Reference length (mm)"
-    f_ref:
-      type: between
-      lower: 0.0
-      upper: 0.0
-      description: "Reference force (strain) - fixed to zero"
 
 blankevoort_lcl:
   parameters:
     k: 0
     alpha: 1
     l_0: 2
-    f_ref: 3
   constraints:
     k:
       type: between
@@ -51,8 +44,3 @@ blankevoort_lcl:
       lower: 57.4
       upper: 63.1
       description: "Reference length (mm)"
-    f_ref:
-      type: between
-      lower: 0.0
-      upper: 0.0
-      description: "Reference force (strain) - fixed to zero"

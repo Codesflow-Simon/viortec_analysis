@@ -6,9 +6,9 @@ import yaml
 def blankevoort_func(lengths, params):
     # Handle both dictionary and array parameter formats
     if isinstance(params, dict):
-        k, alpha, l_0, f_ref = params['k'], params['alpha'], params['l_0'], params['f_ref']
+        k, alpha, l_0 = params['k'], params['alpha'], params['l_0']
     else:
-        k, alpha, l_0, f_ref = params
+        k, alpha, l_0 = params
     # Calculate strain for all lengths
     strain = (lengths - l_0) / l_0
     

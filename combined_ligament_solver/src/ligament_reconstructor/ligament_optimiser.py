@@ -255,7 +255,16 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
     
     mcl_constraint_manager, lcl_constraint_manager = constraint_manager
     
-    def mcmc_like_loss(params):
+    knee_model = KneeModel(knee_config, log=False)
+    knee_model.build_geometry()
+    knee_model.build_ligament_forces(BlankevoortFunction([40, 0.06, 90.0, 0.0]), BlankevoortFunction([60, 0.06, 60.0, 0.0]))
+    knee_model.assemble_equations(0)
+    geometry = knee_model.get_geometry()
+    mcl_moment_arm = geometry["MCL moment arm"]
+    lcl_moment_arm = geometry["LCL moment arm"]
+    application_moment_arm = geometry["Application Moment arm"]
+
+    def mcmc_like_loss(params, thetas, applied_forces, lcl_lengths, mcl_lengths):
         """
         Loss function similar to MCMC likelihood but for least squares optimization.
         Returns the negative log-likelihood (to minimize).
@@ -264,32 +273,30 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
         mcl_params = params[:4]  # [k, alpha, l_0, f_ref]
         lcl_params = params[4:]  # [k, alpha, l_0, f_ref]
         
-        # Validate parameter arrays
-        if not np.all(np.isfinite(mcl_params)) or not np.all(np.isfinite(lcl_params)):
-            return np.inf
-        
-        # Create ligament functions
-        mcl_func = BlankevoortFunction(mcl_params)
-        lcl_func = BlankevoortFunction(lcl_params)
-        
-        # Create knee model
-        knee_model = KneeModel(knee_config, log=False)
-        knee_model.build_geometry()
-        knee_model.build_ligament_forces(lcl_func, mcl_func)
-        
-        # Calculate predicted forces for all thetas
-        results = knee_model.calculate_thetas(thetas)
-        predicted_forces = results['applied_forces']
+        # Define Blankevoort function for ligaments
+        def blankevoort_func(length, params):
+            k, alpha, l_0, f_ref = params
+            # Calculate strain
+            strain = (length - l_0) / l_0
+            # Calculate force using Blankevoort equation
+            if strain > 0:
+                force = (k / (4 * alpha)) * (np.exp(alpha * strain) - 1)
+            else:
+                force = 0
+            return force
 
-        knee_model.reset()
-        
-        # Compute residuals
-        residuals = np.array(applied_forces) - np.array(predicted_forces)
-        
-        # Gaussian log-likelihood (negative for minimization)
-        log_like = -0.5 * np.sum(residuals**2) / (sigma_noise**2) - len(thetas) * np.log(sigma_noise * np.sqrt(2 * np.pi))
-        
-        return -log_like  # Return negative for minimization
+        # Create vectorized version for arrays
+        blankevoort_vec = np.vectorize(lambda l: blankevoort_func(l, mcl_params))
+        mcl_forces = blankevoort_vec(mcl_lengths)
+        blankevoort_vec = np.vectorize(lambda l: blankevoort_func(l, lcl_params))
+        lcl_forces = blankevoort_vec(lcl_lengths)
+
+        mcl_moments = mcl_forces * mcl_moment_arm
+        lcl_moments = lcl_forces * lcl_moment_arm
+        application_moments = (mcl_forces + lcl_forces) * application_moment_arm
+
+        estimated_applied_forces = mcl_moments + lcl_moments + application_moments
+        return np.sum((applied_forces - estimated_applied_forces)**2 / len(thetas))
 
     
     def constraint_loss(params):
@@ -317,25 +324,42 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
         
         return penalty
     
-    def total_loss(params):
+    def total_loss(params, thetas, applied_forces, lcl_lengths, mcl_lengths):
         """Combined loss function with constraints."""
-        return mcmc_like_loss(params) + constraint_loss(params)
+        return mcmc_like_loss(params, thetas, applied_forces, lcl_lengths, mcl_lengths) + constraint_loss(params)
     
     # Initial guess - use reasonable starting values
     mcl_start = [40, 0.06, 90.0, 0.0]
     lcl_start = [60, 0.06, 60.0, 0.0]
     initial_params = np.array(mcl_start + lcl_start)
+
+    loss_func = lambda params: total_loss(params, thetas, applied_forces, lcl_lengths, mcl_lengths)
     
-    print(f"Starting least squares optimization...")
-    print(f"Initial parameters: {initial_params}")
-    
+    mcl_gt = [33.5, 0.06, 89.43, 0]  # Ground truth MCL parameters from config
+    lcl_gt = [42.8, 0.06, 59.528, 0]  # Ground truth LCL parameters from config
+
+    gt_loss = loss_func(mcl_gt + lcl_gt)
+
     # Run optimization
+    # Create callback to track iterations and loss
+    iteration = [0]
+    loss_history = []
+    
+    def callback(xk):
+        iteration[0] += 1
+        current_loss = loss_func(xk)
+        loss_history.append(current_loss)
+        print(f"Iteration {iteration[0]}: Loss = {current_loss:.4f}")
+        
     result = minimize(
-        total_loss, 
-        initial_params, 
+        loss_func,
+        initial_params,
         method='L-BFGS-B',
-        options={'maxiter': 1000, 'disp': True}
+        callback=callback,
+        options={'maxiter': 10, 'disp': True}
     )
+
+    exit()
     
     if not result.success:
         print(f"Optimization failed: {result.message}")
@@ -362,7 +386,7 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
     # Calculate final predictions
     knee_model = KneeModel(knee_config, log=False)
     knee_model.build_geometry()
-    knee_model.build_ligament_forces(lcl_func, mcl_func)
+    knee_model.build_ligament_forces(mcl_func, lcl_func)  # MCL on left, LCL on right
     
     results = knee_model.calculate_thetas(thetas)
     predicted_forces = results['applied_forces']

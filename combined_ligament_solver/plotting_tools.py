@@ -48,8 +48,8 @@ def visualize_ligament_curves(config, samples, data, ls_result=None):
     sample_mcl_tensions = []
     
     for sample in samples[::10]:  # Subsample for visualization (every 10th sample)
-        lcl_params = sample[4:]  # Last 4 parameters are LCL
         mcl_params = sample[:4]  # First 4 parameters are MCL
+        lcl_params = sample[4:]  # Last 4 parameters are LCL
         
         lcl_func = BlankevoortFunction(lcl_params, )
         mcl_func = BlankevoortFunction(mcl_params, )
@@ -58,8 +58,8 @@ def visualize_ligament_curves(config, samples, data, ls_result=None):
         sample_mcl_tensions.append(mcl_func(mcl_elongation_range))
     
     # Calculate mean sample
-    mean_lcl_params = np.mean(samples[:, 4:], axis=0)
     mean_mcl_params = np.mean(samples[:, :4], axis=0)
+    mean_lcl_params = np.mean(samples[:, 4:], axis=0)
     
     mean_lcl_func = BlankevoortFunction(mean_lcl_params, )
     mean_mcl_func = BlankevoortFunction(mean_mcl_params, )
@@ -132,14 +132,16 @@ def visualize_theta_force_curves(config, samples, data, ls_result=None):
     sample_predictions = []
     
     for sample in samples[::20]:  # Subsample for visualization
-        lcl_params = sample[4:]  # Last 4 parameters are LCL
         mcl_params = sample[:4]  # First 4 parameters are MCL
+        lcl_params = sample[4:]  # Last 4 parameters are LCL
         
         lcl_func = BlankevoortFunction(lcl_params, )
         mcl_func = BlankevoortFunction(mcl_params, )
         
         # Create model with sample parameters
-        model = KneeModel(knee_config, lcl_func, mcl_func, log=False)
+        model = KneeModel(knee_config, log=False)
+        model.build_geometry()
+        model.build_ligament_forces(mcl_func, lcl_func)  # MCL on left, LCL on right
         results = model.calculate_thetas(all_thetas)
         sample_forces = results['applied_forces']
         model.reset()
@@ -147,15 +149,15 @@ def visualize_theta_force_curves(config, samples, data, ls_result=None):
         sample_predictions.append(sample_forces)
     
     # Calculate mean prediction
-    mean_lcl_params = np.mean(samples[:, 4:], axis=0)
     mean_mcl_params = np.mean(samples[:, :4], axis=0)
+    mean_lcl_params = np.mean(samples[:, 4:], axis=0)
     
     mean_lcl_func = BlankevoortFunction(mean_lcl_params, )
     mean_mcl_func = BlankevoortFunction(mean_mcl_params, )
     
     mean_model = KneeModel(knee_config, log=False)
     mean_model.build_geometry()
-    mean_model.build_ligament_forces(mean_lcl_func, mean_mcl_func)
+    mean_model.build_ligament_forces(mean_mcl_func, mean_lcl_func)  # MCL on left, LCL on right
     results = mean_model.calculate_thetas(all_thetas)
     mean_forces = results['applied_forces']
     mean_model.reset()

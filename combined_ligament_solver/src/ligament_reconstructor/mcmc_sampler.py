@@ -4,6 +4,7 @@ from typing import Dict, Tuple, Optional, Any
 from src.ligament_models.constraints import ConstraintManager
 import emcee
 from copy import deepcopy
+from src.ligament_models.blankevoort import BlankevoortFunction
 
 def assert_parameter_format(params: np.ndarray):
     """
@@ -153,6 +154,7 @@ class CompleteMCMCSampler(BaseSampler):
         # Build model once with dummy parameters
         self._cached_knee_model = KneeModel(self.knee_config, log=False)
         self._cached_knee_model.build_geometry()
+        # Dummy build
 
 
     def _log_prior_single(self, params: np.ndarray, constraint_manager) -> float:
@@ -421,17 +423,17 @@ class CompleteMCMCSampler(BaseSampler):
         if not np.all(np.isfinite(mcl_params)) or not np.all(np.isfinite(lcl_params)):
             return -np.inf
         
-
+        mcl_func = BlankevoortFunction(mcl_params)
+        lcl_func = BlankevoortFunction(lcl_params)
+        
         # Use cached model and update parameters (fast!)
         knee_model = self._cached_knee_model
-        knee_model.update_ligament_parameters(mcl_params, lcl_params)
+        knee_model.build_ligament_forces(mcl_func, lcl_func)
         
         # Calculate predicted forces for all thetas
         results = knee_model.calculate_thetas(thetas)
         predicted_forces = results['applied_forces']
         
-        knee_model.reset() # Pass by reference, so we don't need to return the model
-
         # Compute residuals
         residuals = np.array(applied_forces) - np.array(predicted_forces)   
         

@@ -52,7 +52,7 @@ def analyse_data(config, data, constraint_manager):
         use_screening=True, 
         screen_percentage=0.1, 
         sigma_noise=1e3,
-        ls_result=ls_result
+        # ls_result=ls_result
     )
     
     print(f"MCMC completed with {len(samples)} samples")
@@ -98,14 +98,14 @@ def main(config, constraints_config):
     return result
 
 def collect_data(config):
-    lig_left = BlankevoortFunction(config['blankevoort_lcl'])
-    lig_right = BlankevoortFunction(config['blankevoort_mcl'])
+    lig_left = BlankevoortFunction(config['blankevoort_mcl'])   # MCL on left
+    lig_right = BlankevoortFunction(config['blankevoort_lcl'])  # LCL on right
     
     # Initialize data collection lists
     data_lists = {
         'applied_force': [], 'applied_moment': [],
-        'length_known_a': [], 'force_known_a': [], 'moment_known_a': [],  # LCL
-        'length_known_b': [], 'force_known_b': [], 'moment_known_b': [],  # MCL
+        'length_known_a': [], 'force_known_a': [], 'moment_known_a': [],  # LCL (Spring A)
+        'length_known_b': [], 'force_known_b': [], 'moment_known_b': [],  # MCL (Spring B)
         'thetas': []  # Store thetas for visualization
     }
     moment_limit = 12_000  # In N(mm)
@@ -115,8 +115,7 @@ def collect_data(config):
         mechanics = config['mechanics'].copy()
         mechanics['theta'] = theta
         
-        knee_model.assemble_equations(theta)
-        solutions = knee_model.solve()
+        solutions = knee_model.solve_applied(theta)
         
         moment = float(solutions['applied_force'].get_moment().norm())
         if moment > moment_limit:
@@ -156,7 +155,6 @@ def collect_data(config):
     theta = 0 * np.pi/180
     knee_model = KneeModel(config['mechanics'], log=False)
     knee_model.build_geometry()
-    knee_model.build_ligament_forces(lig_left, lig_right)
 
     while True:
         success, moment = collect_at_theta(theta, knee_model)
@@ -193,6 +191,7 @@ if __name__ == "__main__":
         for ref_strain_mcl in reference_strains_mcl:
             config['blankevoort_lcl']['l_0'] = config['mechanics']['left_length']/(ref_strain_lcl + 1)
             config['blankevoort_mcl']['l_0'] = config['mechanics']['right_length']/(ref_strain_mcl + 1)
+
             results.append({
                 'lcl_strain': ref_strain_lcl,
                 'mcl_strain': ref_strain_mcl,

@@ -268,71 +268,29 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
         if not np.all(np.isfinite(mcl_params)) or not np.all(np.isfinite(lcl_params)):
             return np.inf
         
-        try:
-            # Create ligament functions
-            mcl_func = BlankevoortFunction(mcl_params)
-            lcl_func = BlankevoortFunction(lcl_params)
-            
-            # Create knee model
-            knee_model = KneeModel(knee_config, lcl_func, mcl_func, log=False)
-            
-            predicted_forces = []
-            
-            # For each theta, calculate predicted applied force
-            for i, theta in enumerate(thetas):
-                # Update model angle
-                knee_model.knee_joint.theta = theta
-                
-                # Get ligament tensions using the model's ligament functions
-                mcl_tension = float(knee_model.lig_function_left(mcl_lengths[i]))
-                lcl_tension = float(knee_model.lig_function_right(lcl_lengths[i]))
-                
-                # Calculate moment arms and applied force (same as MCMC)
-                contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
-                mcl_direction = knee_model.lig_springB.get_force_direction_on_p1()
-                lcl_direction = knee_model.lig_springA.get_force_direction_on_p1()
-                
-                mcl_force_vector = abs(mcl_tension) * mcl_direction
-                lcl_force_vector = abs(lcl_tension) * lcl_direction
-                
-                tibia_frame = knee_model.tibia_frame
-                mcl_moment_arm = knee_model.calculate_moment_arm(
-                    knee_model.lig_bottom_pointA.convert_to_frame(tibia_frame), 
-                    mcl_direction.convert_to_frame(tibia_frame), 
-                    contact_point.convert_to_frame(tibia_frame)
-                )
-                mcl_moment_arm = abs(float(mcl_moment_arm))
-                
-                lcl_moment_arm = knee_model.calculate_moment_arm(
-                    knee_model.lig_bottom_pointB.convert_to_frame(tibia_frame), 
-                    lcl_direction.convert_to_frame(tibia_frame), 
-                    contact_point.convert_to_frame(tibia_frame)
-                )
-                lcl_moment_arm = abs(float(lcl_moment_arm))
-                
-                from src.statics_solver.src.reference_frame import Point
-                applied_moment_arm = knee_model.calculate_moment_arm(
-                    knee_model.application_point.convert_to_frame(tibia_frame), 
-                    Point([1,0,0], tibia_frame), 
-                    contact_point.convert_to_frame(tibia_frame)
-                )
-                applied_moment_arm = abs(float(applied_moment_arm))
-                
-                applied_force = (mcl_tension * mcl_moment_arm - lcl_tension * lcl_moment_arm) / applied_moment_arm
-                applied_force = float(applied_force)
-                predicted_forces.append(applied_force)
-            
-            # Compute residuals
-            residuals = np.array(applied_forces) - np.array(predicted_forces)
-            
-            # Gaussian log-likelihood (negative for minimization)
-            log_like = -0.5 * np.sum(residuals**2) / (sigma_noise**2) - len(thetas) * np.log(sigma_noise * np.sqrt(2 * np.pi))
-            
-            return -log_like  # Return negative for minimization
-            
-        except Exception as e:
-            print(f"Error in loss function: {e}")
-            return np.inf
+        # Create ligament functions
+        mcl_func = BlankevoortFunction(mcl_params)
+        lcl_func = BlankevoortFunction(lcl_params)
+        
+        # Create knee model
+        knee_model = KneeModel(knee_config, log=False)
+        knee_model.build_geometry()
+        knee_model.build_ligament_forces(lcl_func, mcl_func)
+        
+        # Calculate predicted forces for all thetas
+        results = knee_model.calculate_thetas(thetas)
+        predicted_forces = results['applied_forces']
+
+        knee_model.reset()
+        
+        # Compute residuals
+        residuals = np.array(applied_forces) - np.array(predicted_forces)
+        
+        # Gaussian log-likelihood (negative for minimization)
+        log_like = -0.5 * np.sum(residuals**2) / (sigma_noise**2) - len(thetas) * np.log(sigma_noise * np.sqrt(2 * np.pi))
+        
+        return -log_like  # Return negative for minimization
+
     
     def constraint_loss(params):
         """Add constraint penalties to the loss function."""
@@ -402,43 +360,12 @@ def least_squares_optimize_complete_model(thetas, applied_forces, lcl_lengths, m
     lcl_func = BlankevoortFunction(lcl_params)
     
     # Calculate final predictions
-    knee_model = KneeModel(knee_config, lcl_func, mcl_func, log=False)
-    predicted_forces = []
+    knee_model = KneeModel(knee_config, log=False)
+    knee_model.build_geometry()
+    knee_model.build_ligament_forces(lcl_func, mcl_func)
     
-    for i, theta in enumerate(thetas):
-        knee_model.knee_joint.theta = theta
-        mcl_tension = float(knee_model.lig_function_right(mcl_lengths[i]))
-        lcl_tension = float(knee_model.lig_function_left(lcl_lengths[i]))
-        
-        contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
-        mcl_direction = knee_model.lig_springA.get_force_direction_on_p2()
-        lcl_direction = knee_model.lig_springB.get_force_direction_on_p2()
-        
-        tibia_frame = knee_model.tibia_frame
-        mcl_moment_arm = knee_model.calculate_moment_arm(
-            knee_model.lig_bottom_pointA.convert_to_frame(tibia_frame), 
-            mcl_direction.convert_to_frame(tibia_frame), 
-            contact_point.convert_to_frame(tibia_frame)
-        )
-        mcl_moment_arm = abs(float(mcl_moment_arm))
-        
-        lcl_moment_arm = knee_model.calculate_moment_arm(
-            knee_model.lig_bottom_pointB.convert_to_frame(tibia_frame), 
-            lcl_direction.convert_to_frame(tibia_frame), 
-            contact_point.convert_to_frame(tibia_frame)
-        )
-        lcl_moment_arm = abs(float(lcl_moment_arm))
-        
-        from src.statics_solver.src.reference_frame import Point
-        applied_moment_arm = knee_model.calculate_moment_arm(
-            knee_model.application_point.convert_to_frame(tibia_frame), 
-            Point([1,0,0], tibia_frame), 
-            contact_point.convert_to_frame(tibia_frame)
-        )
-        applied_moment_arm = abs(float(applied_moment_arm))
-        
-        applied_force = (mcl_tension * mcl_moment_arm - lcl_tension * lcl_moment_arm) / applied_moment_arm
-        predicted_forces.append(float(applied_force))
+    results = knee_model.calculate_thetas(thetas)
+    predicted_forces = results['applied_forces']
     
     # Calculate residuals and statistics
     residuals = np.array(applied_forces) - np.array(predicted_forces)

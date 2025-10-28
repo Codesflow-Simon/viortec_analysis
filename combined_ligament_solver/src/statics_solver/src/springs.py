@@ -10,17 +10,14 @@ class AbstractSpring:
         self.point_1_orignal_frame = point_1.reference_frame # We use this for reporting later
         self.point_2_orignal_frame = point_2.reference_frame
 
-        if point_1.reference_frame != point_2.reference_frame:
-            point_2 = point_2.convert_to_frame(point_1.reference_frame)
-
         self.name = name
         self.set_points(point_1, point_2)
 
     def set_points(self, point_1: Point=None, point_2: Point=None):
         if point_1 is not None:
-            self.point_1 = point_1.convert_to_frame(self.point_1_orignal_frame)
+            self.point_1 = point_1
         if point_2 is not None:
-            self.point_2 = point_2.convert_to_frame(self.point_1_orignal_frame)
+            self.point_2 = point_2
 
     def get_points(self):
         return self.point_1, self.point_2
@@ -60,6 +57,8 @@ class AbstractSpring:
 
     def get_spring_length(self) -> Expr:
         """Returns the symbolic length of the spring."""
+        if self.point_1.reference_frame != self.point_2.reference_frame:
+            self.point_2 = self.point_2.convert_to_frame(self.point_1.reference_frame)
         return (self.point_2 - self.point_1).norm()
 
     def get_force_magnitude(self) -> Expr:

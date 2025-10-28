@@ -13,37 +13,15 @@ from ..src.joint_models import TwoBallJoint, PivotJoint, AsymmetricTwoBallJoint
 from .base import AbstractModel
 
 class KneeModel(AbstractModel):
-    def __init__(self, data, lig_function_left: BlankevoortFunction, lig_function_right: BlankevoortFunction, log=True):
+    def __init__(self, data, log=True):
         self.log = log
         self.data = data
-        self.lig_function_left = lig_function_left
-        self.lig_function_right = lig_function_right
-        
-        # Caching flags for optimization
-        self._cached_geometry = None
-        self._cached_ligament_params = None
-        self._cached_theta = None
-        self._linear_system_cache = None
-        
-        self.build_model()
+        self.geometry_built = False
+        self.ligament_forces_built = False
+        self.equations_assembled = False
+        self.solutions = None
 
-    def update_data(self, data):
-        self.data = data
-        self.build_model()
-
-    def build_model(self):
-        """Build the complete model. This is the main entry point that delegates to sub-methods."""
-        self._build_geometry()
-        self._build_ligament_forces()
-        self._assemble_equations()
-        
-        # Mark everything as cached
-        self._cached_geometry = True
-        self._cached_ligament_params = (self.lig_function_left.get_params().copy(), self.lig_function_right.get_params().copy())
-        self._cached_theta = self.data['theta']
-        self._linear_system_cache = None  # Will be computed on first solve
-
-    def _build_geometry(self):
+    def build_geometry(self):
         """Build the geometric structure (frames, points, joint) based on theta and config."""
         # Some constants
         femur_perp = self.data['femur_perp']
@@ -51,7 +29,7 @@ class KneeModel(AbstractModel):
         tibia_perp = self.data['tibia_perp']
         tibia_para = self.data['tibia_para']
         application_length = self.data['application_length']
-        theta_val = self.data['theta']
+        # theta_val = self.data['theta']
         left_length = self.data['left_length']
         right_length = self.data['right_length']
         ball_radius_1 = self.data['ball_radius_1']
@@ -69,7 +47,7 @@ class KneeModel(AbstractModel):
         self.ball_radius_1 = ball_radius_1
         self.ball_radius_2 = ball_radius_2
         self.knee_joint = AsymmetricTwoBallJoint(self.tibia_frame, self.world_frame, distance=self.ball_distance, distance_2=self.ball_distance_2, radius_1=self.ball_radius_1, radius_2=self.ball_radius_2)
-        self.knee_joint.set_theta(theta_val)
+        self.knee_joint.set_theta(None)
 
         self.tibia_frame.add_parent(self.world_frame, self.knee_joint)
 
@@ -94,30 +72,53 @@ class KneeModel(AbstractModel):
         self.lig_bottom_pointA_flat = Point([tibia_perp, -tibia_para, 0], self.tibia_frame)
         self.lig_bottom_pointB_flat = Point([-tibia_perp, -tibia_para, 0], self.tibia_frame)
         self.application_point = Point([0, -application_length, 0], self.tibia_frame)
+        self.geometry_built = True
 
-    def _build_ligament_forces(self):
+    def build_ligament_forces(self, lig_function_left: BlankevoortFunction, lig_function_right: BlankevoortFunction):
         """Build ligament springs and applied forces."""
-        app_Fx = self.data['app_Fx']
+
+        if not self.geometry_built:
+            raise ValueError("Geometry must be built before building ligament forces")
+
+        self.lig_function_left = lig_function_left
+        self.lig_function_right = lig_function_right
 
         # Springs
-        self.lig_springA = BlankevoortSpring.from_ligament_function(self.lig_top_pointA, self.lig_bottom_pointA, "LigSpringA", self.lig_function_left)
-        self.lig_springB = BlankevoortSpring.from_ligament_function(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB", self.lig_function_right)
+        self.lig_springA = BlankevoortSpring.from_ligament_function(self.lig_top_pointA, self.lig_bottom_pointA, "LigSpringA", lig_function_left)
+        self.lig_springB = BlankevoortSpring.from_ligament_function(self.lig_top_pointB, self.lig_bottom_pointB, "LigSpringB", lig_function_right)
+
+        self.ligament_forces_built = True
+
+    def assemble_equations(self, theta: float):
+        """Assemble the force and moment balance equations."""
+
+        if not self.ligament_forces_built:
+            raise ValueError("Ligament forces must be built before assembling equations")
+
+        self.knee_joint.set_theta(theta)
 
         # Applied force: Unknown force, no torques transferred
+        self.app_Fx = self.data['app_Fx']
+        app_Fx = self.app_Fx
         self.force_vec_sym = [app_Fx,0 ,0 ]
         self.force_vector = Point(self.force_vec_sym, self.tibia_frame)
         self.applied_force = Force("AppliedForce", self.force_vector, self.application_point)
 
-    def _assemble_equations(self):
-        """Assemble the force and moment balance equations."""
         # Constraint forces
-        self.constraint_force, self.constraint_unknowns = self.knee_joint.get_constraint_force()
+        self.constraint_force, self.constraint_unknowns = self.knee_joint.get_constraint_force(define_frame=self.tibia_frame)
         if self.log:
             print(f"Constraint force: {self.constraint_force}")
 
+        self.tibia_body.clear()
         self.tibia_body.add_force_pair(self.constraint_force, self.femur_body)
 
         # Register spring forces on the bodies
+        lig_bottom_pointA = self.lig_bottom_pointA.convert_to_frame(self.world_frame)
+        lig_bottom_pointB = self.lig_bottom_pointB.convert_to_frame(self.world_frame)
+
+        self.lig_springA.set_points(self.lig_top_pointA, lig_bottom_pointA)
+        self.lig_springB.set_points(self.lig_top_pointB, lig_bottom_pointB)
+
         self.femur_body.add_external_force(self.lig_springA.get_force_on_point1())
         self.tibia_body.add_external_force(self.lig_springA.get_force_on_point2())
 
@@ -126,148 +127,75 @@ class KneeModel(AbstractModel):
 
         self.tibia_body.add_external_force(self.applied_force)
 
+        self.equations_assembled = True
+
     def solve(self):
+        if not self.equations_assembled:
+            raise ValueError("Equations must be assembled before solving")
+
         """Solve the linear system using direct numpy linear algebra instead of sympy.solve()."""
-        # Check if we need to rebuild the linear system
-        if self._linear_system_cache is None or self._needs_linear_system_rebuild():
-            self._build_linear_system()
+        net_force_coords, net_moment_coords = self.tibia_body.get_net_forces()
+
+        non_zero_force = net_force_coords[0:2, 0]
+        non_zero_moment = net_moment_coords[2, 0]
+        equations = sympy.Matrix([non_zero_force[0], non_zero_force[1], non_zero_moment])
+        solutions = sympy.solve(equations, [self.constraint_unknowns[0], self.constraint_unknowns[1], self.app_Fx])
         
-        # Get ligament elongations and forces (numeric)
-        lig_a_length = float(self.lig_springA.get_spring_length())
-        lig_b_length = float(self.lig_springB.get_spring_length())
-        
-        # Evaluate ligament forces using the ligament functions
-        lig_a_force_magnitude = float(self.lig_function_left(lig_a_length))
-        lig_b_force_magnitude = float(self.lig_function_right(lig_b_length))
-        
-        # Get ligament force directions (unit vectors)
-        lig_a_direction = self.lig_springA.get_force_direction_on_p2()
-        lig_b_direction = self.lig_springB.get_force_direction_on_p2()
-        
-        # Convert to numeric vectors
-        lig_a_force_vec = np.array([float(lig_a_direction.coordinates[i]) for i in range(3)]) * lig_a_force_magnitude
-        lig_b_force_vec = np.array([float(lig_b_direction.coordinates[i]) for i in range(3)]) * lig_b_force_magnitude
-        
-        # Get application point and contact point for moment calculations
-        contact_point = self.knee_joint.get_contact_point(theta=self.data['theta'])
-        contact_point_tibia = contact_point.convert_to_frame(self.tibia_frame)
-        
-        # Convert points to numeric arrays
-        app_point_vec = np.array([float(self.application_point.coordinates[i]) for i in range(3)])
-        contact_point_vec = np.array([float(contact_point_tibia.coordinates[i]) for i in range(3)])
-        lig_a_point_vec = np.array([float(self.lig_bottom_pointA.coordinates[i]) for i in range(3)])
-        lig_b_point_vec = np.array([float(self.lig_bottom_pointB.coordinates[i]) for i in range(3)])
-        
-        # Build the linear system Ax = b
-        # Unknowns: [constraint_force_x, constraint_force_y, app_Fx]
-        A = np.zeros((6, 3))
-        b = np.zeros(6)
-        
-        # Force balance equations (3 equations)
-        # Sum of forces = 0: constraint_force + applied_force + ligament_forces = 0
-        A[0, 0] = 1.0  # constraint_force_x coefficient
-        A[0, 2] = 1.0  # app_Fx coefficient  
-        b[0] = -(lig_a_force_vec[0] + lig_b_force_vec[0])  # ligament forces in x
-        
-        A[1, 1] = 1.0  # constraint_force_y coefficient
-        b[1] = -(lig_a_force_vec[1] + lig_b_force_vec[1])  # ligament forces in y
-        
-        b[2] = -(lig_a_force_vec[2] + lig_b_force_vec[2])  # ligament forces in z
-        
-        # Moment balance equations (3 equations)
-        # Sum of moments = 0: r_constraint × constraint_force + r_app × applied_force + ligament_moments = 0
-        # Moment = r × F, so for r = [rx, ry, rz] and F = [Fx, Fy, Fz]:
-        # M = [ry*Fz - rz*Fy, rz*Fx - rx*Fz, rx*Fy - ry*Fx]
-        
-        # Constraint force moment (at contact point)
-        A[3, 0] = contact_point_vec[1]  # ry * constraint_force_x (z-component of moment)
-        A[3, 1] = -contact_point_vec[0]  # -rx * constraint_force_y (z-component of moment)
-        
-        # Applied force moment
-        r_app = app_point_vec - contact_point_vec
-        A[3, 2] = r_app[1]  # ry * app_Fx (z-component of moment)
-        
-        # Ligament moments
-        r_lig_a = lig_a_point_vec - contact_point_vec
-        r_lig_b = lig_b_point_vec - contact_point_vec
-        lig_a_moment = np.cross(r_lig_a, lig_a_force_vec)
-        lig_b_moment = np.cross(r_lig_b, lig_b_force_vec)
-        
-        b[3] = -(lig_a_moment[2] + lig_b_moment[2])  # z-component of ligament moments
-        
-        # x and y components of moment balance (if needed)
-        A[4, 0] = -contact_point_vec[2]  # -rz * constraint_force_x
-        A[4, 1] = contact_point_vec[2]   # rz * constraint_force_y
-        A[4, 2] = -r_app[2]  # -rz * app_Fx
-        b[4] = -(lig_a_moment[0] + lig_b_moment[0])
-        
-        A[5, 0] = contact_point_vec[1]   # ry * constraint_force_x
-        A[5, 1] = -contact_point_vec[0]  # -rx * constraint_force_y
-        A[5, 2] = r_app[0]  # rx * app_Fx
-        b[5] = -(lig_a_moment[1] + lig_b_moment[1])
-        
-        # Solve the linear system
-        try:
-            solution = np.linalg.solve(A, b)
-            constraint_force_x, constraint_force_y, app_Fx_solved = solution
-        except np.linalg.LinAlgError:
-            # Fallback to least squares if system is singular
-            solution = np.linalg.lstsq(A, b, rcond=None)[0]
-            constraint_force_x, constraint_force_y, app_Fx_solved = solution
-        
-        # Create solutions dictionary in the same format as before
-        solutions = {
-            self.constraint_unknowns[0]: constraint_force_x,
-            self.constraint_unknowns[1]: constraint_force_y,
-            self.force_vec_sym[0]: app_Fx_solved
-        }
+        if solutions is None or len(solutions) == 0:
+            # Print debug information when no solutions found
+            print("\nDEBUG: No solutions found for system of equations")
+            print("Current model state:")
+            print(f"- Theta: {self.knee_joint.theta}")
+            print(f"- Equations:")
+            print(equations)
+            print("\nForces in system:")
+            print(f"- Net forces: {net_force_coords}")
+            print(f"- Net moment: {net_moment_coords}")
+            print(f"- Constraint unknowns: {self.constraint_unknowns}")
+            print(f"- Applied force unknown: {self.app_Fx}")
+            raise ValueError("No solutions found")
+        TwoBallConstraintForce_x = solutions[self.constraint_unknowns[0]]
+        TwoBallConstraintForce_y = solutions[self.constraint_unknowns[1]]
+        app_Fx_solved = list(solutions.values())[2]
 
         if self.log:
-            print(f"Spring A elongation: {lig_a_length}")
-            print(f"Spring B elongation: {lig_b_length}")
-            print(f"Solved forces: constraint_x={constraint_force_x:.3f}, constraint_y={constraint_force_y:.3f}, app_Fx={app_Fx_solved:.3f}")
+            print(f"Solved forces: constraint_x={TwoBallConstraintForce_x:.3f}, constraint_y={TwoBallConstraintForce_y:.3f}, app_Fx={app_Fx_solved:.3f}")
 
         # Substitute solutions back into forces
         self.constraint_force.substitute_solutions(solutions)
         self.applied_force.substitute_solutions(solutions)
 
-        # Add computed values to solutions dictionary
-        solutions['lig_springA_length'] = lig_a_length
-        solutions['lig_springB_length'] = lig_b_length
+        solutions.update({
+            'lig_springA_length': self.lig_springA.get_spring_length(),
+            'lig_springB_length': self.lig_springB.get_spring_length(),
+            'lig_springA_force': self.lig_springA.get_force_on_point2(),
+            'lig_springB_force': self.lig_springB.get_force_on_point2(),
+            'applied_force': self.applied_force,
+            'constraint_force': self.constraint_force
+        })
 
-        # Create force objects for ligament forces
-        lig_a_force_point = Point(lig_a_force_vec, self.tibia_frame)
-        lig_b_force_point = Point(lig_b_force_vec, self.tibia_frame)
-        solutions['lig_springA_force'] = Force("LigSpringA", lig_a_force_point, self.lig_bottom_pointA)
-        solutions['lig_springB_force'] = Force("LigSpringB", lig_b_force_point, self.lig_bottom_pointB)
-
-        
-        solutions['applied_force'] = self.applied_force
-        solutions['constraint_force'] = self.constraint_force
-        
+        self.equations_assembled = False
         return solutions
 
-    def _needs_linear_system_rebuild(self):
-        """Check if the linear system needs to be rebuilt based on what has changed."""
-        if self._linear_system_cache is None:
-            return True
-        
-        # Check if theta has changed (affects geometry)
-        if self._cached_theta != self.data['theta']:
-            return True
-            
-        # Check if ligament parameters have changed
-        current_params = (self.lig_function_left.get_params().copy(), self.lig_function_right.get_params().copy())
-        if self._cached_ligament_params != current_params:
-            return True
-            
-        return False
-
-    def _build_linear_system(self):
-        """Build the linear system structure (this is called once and cached)."""
-        # This method is called when we need to rebuild the linear system
-        # For now, we'll just mark it as built - the actual system is built in solve()
-        self._linear_system_cache = True
+    def reset(self):
+        self.geometry_built = False
+        self.ligament_forces_built = False
+        self.equations_assembled = False
+        self.solutions = None
+        self.knee_joint.set_theta(None)
+        self.lig_function_left = None
+        self.lig_function_right = None
+        self.lig_springA = None
+        self.lig_springB = None
+        self.applied_force = None
+        self.constraint_force = None
+        self.constraint_unknowns = None
+        self.net_force_coords = None
+        self.net_moment_coords = None
+        self.non_zero_force = None
+        self.non_zero_moment = None
+        self.equations = None
+        self.solutions = None
 
     def calculate_moment_arm(self, force_point, force_vector, pivot_point):
         """
@@ -276,22 +204,7 @@ class KneeModel(AbstractModel):
         
         return (force_point - pivot_point).cross(force_vector).norm() / force_vector.norm()
     
-    def set_theta(self, theta):
-        """
-        Fast path: Update only the joint angle without full model rebuild.
-        
-        Args:
-            theta: New joint angle in radians
-        """
-        self.data['theta'] = theta
-        self.knee_joint.set_theta(theta)
-        
-        # Update cached theta
-        self._cached_theta = theta
-        
-        # Invalidate linear system cache since geometry changed
-        self._linear_system_cache = None
-
+   
     def set_ligament_functions(self, lig_left, lig_right):
         """
         Fast path: Update ligament functions without full model rebuild.
@@ -374,5 +287,53 @@ class KneeModel(AbstractModel):
 
 
         vis.render(show_values=False, equal_aspect=True)
+
+    def calculate_thetas(self, thetas):
+        """
+        Calculate comprehensive results for a list of theta angles.
+        
+        This method encapsulates the common pattern of:
+        1. Looping through theta values
+        2. Assembling equations at each theta
+        3. Solving the system
+        4. Extracting all relevant data
+        
+        Args:
+            thetas: List or array of knee angles in radians
+            
+        Returns:
+            dict: Dictionary with lists of all calculated values:
+                - 'applied_forces': List of applied force magnitudes
+                - 'applied_moments': List of applied moment magnitudes
+                - 'lig_springA_lengths': List of LCL spring lengths
+                - 'lig_springB_lengths': List of MCL spring lengths
+                - 'lig_springA_forces': List of LCL force magnitudes
+                - 'lig_springB_forces': List of MCL force magnitudes
+                - 'constraint_forces': List of constraint force magnitudes
+        """
+        results = {
+            'applied_forces': [],
+            'applied_moments': [],
+            'lig_springA_lengths': [],
+            'lig_springB_lengths': [],
+            'lig_springA_forces': [],
+            'lig_springB_forces': [],
+            'constraint_forces': []
+        }
+        
+        for theta in thetas:
+            self.assemble_equations(theta)
+            solutions = self.solve()
+            
+            # Extract all the useful data
+            results['applied_forces'].append(float(solutions['applied_force'].get_force().norm()))
+            results['applied_moments'].append(float(solutions['applied_force'].get_moment().norm()))
+            results['lig_springA_lengths'].append(float(solutions['lig_springA_length']))
+            results['lig_springB_lengths'].append(float(solutions['lig_springB_length']))
+            results['lig_springA_forces'].append(float(solutions['lig_springA_force'].get_force().norm()))
+            results['lig_springB_forces'].append(float(solutions['lig_springB_force'].get_force().norm()))
+            results['constraint_forces'].append(float(solutions['constraint_force'].get_force().norm()))
+        
+        return results
 
 

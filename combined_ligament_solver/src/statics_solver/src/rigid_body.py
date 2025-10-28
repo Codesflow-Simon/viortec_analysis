@@ -69,6 +69,10 @@ class RigidBody:
         self.forces = []
         self.torques = []
 
+    def clear(self):
+        self.forces = []
+        self.torques = []
+
     def add_external_force(self, force: Force):
         if force is not None:
             self.forces.append(force)

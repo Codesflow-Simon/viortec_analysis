@@ -150,14 +150,10 @@ class CompleteMCMCSampler(BaseSampler):
         from src.ligament_models.blankevoort import BlankevoortFunction
         from src.statics_solver.models.statics_model import KneeModel
         
-        # Use dummy parameters for initial model creation
-        dummy_mcl_params = np.array([30.0, 0.06, 90.0, 0.0])
-        dummy_lcl_params = np.array([40.0, 0.06, 60.0, 0.0])
-        dummy_lig_left = BlankevoortFunction(dummy_lcl_params)
-        dummy_lig_right = BlankevoortFunction(dummy_mcl_params)
-        
         # Build model once with dummy parameters
-        self._cached_knee_model = KneeModel(self.knee_config, dummy_lig_left, dummy_lig_right, log=False)
+        self._cached_knee_model = KneeModel(self.knee_config, log=False)
+        self._cached_knee_model.build_geometry()
+
 
     def _log_prior_single(self, params: np.ndarray, constraint_manager) -> float:
         """Check constraints for a single ligament's parameters."""
@@ -430,40 +426,11 @@ class CompleteMCMCSampler(BaseSampler):
         knee_model = self._cached_knee_model
         knee_model.update_ligament_parameters(mcl_params, lcl_params)
         
-        predicted_forces = []
+        # Calculate predicted forces for all thetas
+        results = knee_model.calculate_thetas(thetas)
+        predicted_forces = results['applied_forces']
         
-        # For each theta, update angle and solve for predicted applied force
-        for i,theta in enumerate(thetas):
-            
-            mcl_length = self.mcl_lengths[i] # Ligament b
-            lcl_length = self.lcl_lengths[i] # Ligament a
-
-            # Get ligament tensions using the model's ligament functions
-            mcl_tension = float(knee_model.lig_function_left(mcl_length))
-            lcl_tension = float(knee_model.lig_function_right(lcl_length))
-
-            contact_point = knee_model.knee_joint.get_contact_point(theta=theta)
-            mcl_direction = knee_model.lig_springB.get_force_direction_on_p2()
-            lcl_direction = knee_model.lig_springA.get_force_direction_on_p2()
-
-            mcl_force_vector =  abs(mcl_tension) * mcl_direction
-            lcl_force_vector =  abs(lcl_tension) * lcl_direction
-
-            tibia_frame = knee_model.tibia_frame
-            mcl_moment_arm = knee_model.calculate_moment_arm(knee_model.lig_bottom_pointA.convert_to_frame(tibia_frame), mcl_direction.convert_to_frame(tibia_frame), contact_point.convert_to_frame(tibia_frame))
-            mcl_moment_arm = abs(float(mcl_moment_arm))
-            lcl_moment_arm = knee_model.calculate_moment_arm(knee_model.lig_bottom_pointB.convert_to_frame(tibia_frame), lcl_direction.convert_to_frame(tibia_frame), contact_point.convert_to_frame(tibia_frame))
-            lcl_moment_arm = abs(float(lcl_moment_arm))
-
-            from src.statics_solver.src.reference_frame import Point
-            applied_moment_arm = knee_model.calculate_moment_arm(knee_model.application_point.convert_to_frame(tibia_frame), Point([1,0,0], tibia_frame), contact_point.convert_to_frame(tibia_frame))
-            applied_moment_arm = abs(float(applied_moment_arm))
-
-            applied_force = (mcl_tension * mcl_moment_arm - lcl_tension * lcl_moment_arm) / applied_moment_arm
-            # Ensure applied_force is a numeric value
-            applied_force = float(applied_force)
-            predicted_forces.append(applied_force)
-
+        knee_model.reset() # Pass by reference, so we don't need to return the model
 
         # Compute residuals
         residuals = np.array(applied_forces) - np.array(predicted_forces)   

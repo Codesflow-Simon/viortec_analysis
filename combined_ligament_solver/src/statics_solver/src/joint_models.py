@@ -29,6 +29,11 @@ class PivotJoint(JointModel):
 
     def set_theta(self, theta):
         self.theta = theta
+
+        if theta is None:
+            self.mapping = None
+            return
+
         rotation = RotationalMapping.from_euler_angles([0, 0, theta])
         translation = TranslationMapping(np.array([0, 0, 0]))
         self.set_mapping(rotation, translation)
@@ -64,7 +69,7 @@ class TwoBallJoint(JointModel):
         self.radius = radius
         self.slide = slide # Else the joint becomes a rolling joint.
 
-        self.set_theta(0.0)
+        self.set_theta(None)
 
     def get_ball_centers(self, theta):
         radius = self.radius
@@ -89,6 +94,11 @@ class TwoBallJoint(JointModel):
 
     def set_theta(self, theta):
         self.theta = theta
+
+        if theta is None:
+            self.mapping = None
+            return
+        
         radius = self.radius
         distance = self._get_distance_for_theta(theta)
 
@@ -150,7 +160,7 @@ class AsymmetricTwoBallJoint(JointModel):
         self.radius_2 = radius_2 if radius_2 is not None else radius_1
         self.slide = slide # Else the joint becomes a rolling joint.
 
-        self.set_theta(0.0)
+        self.set_theta(None)
 
     def get_ball_centers(self, theta):
         return [Point([-self.distance,  -self.radius_1, 0], self.world_frame), 
@@ -158,6 +168,11 @@ class AsymmetricTwoBallJoint(JointModel):
 
     def set_theta(self, theta):
         self.theta = theta
+
+        if theta is None:
+            self.rotation = None
+            self.translation = None
+            return
 
         if np.tan(theta) < 2 * (self.radius_1 - self.radius_2) / (self.distance + self.distance_2):
             radius = self.radius_1
@@ -181,6 +196,9 @@ class AsymmetricTwoBallJoint(JointModel):
         self.set_mapping(rotation, translation)
 
     def get_contact_point(self, theta):
+        if theta is None:
+            raise ValueError("Theta is not set")
+
         # Determine which ball is in contact based on angle
         if np.tan(theta) < 2 * (self.radius_1 - self.radius_2) / (self.distance + self.distance_2):
             distance = self.distance
@@ -193,12 +211,15 @@ class AsymmetricTwoBallJoint(JointModel):
         ball_center = np.array([distance, -radius, 0])
         return Point(ball_angle + ball_center, self.world_frame)
 
-    def get_constraint_force(self):
+    def get_constraint_force(self, define_frame: ReferenceFrame):
+        if self.theta is None:
+            raise ValueError("Theta is not set")
+
         contact_point = self.get_contact_point(self.theta)
         force_x = sympy.Symbol(f'TwoBallConstraintForce_x')
         force_y = sympy.Symbol(f'TwoBallConstraintForce_y')
         force_vector = sympy.Matrix([force_x, force_y, 0])
-        constraint_forces = Force(f"TwoBallConstraintForce", Point(force_vector, self.world_frame), contact_point)
+        constraint_forces = Force(f"TwoBallConstraintForce", Point(force_vector, define_frame), contact_point)
         unknown_list = [force_x, force_y]
         return constraint_forces, unknown_list
 

@@ -7,7 +7,7 @@ import yaml
 import matplotlib.pyplot as plt
 
 
-def analyse_data(config, data, constraints_config):
+def analyse_data(config, data, constraints_config, ref_strain_lcl=None, ref_strain_mcl=None):
     # Run least squares optimization first
     print("=" * 50)
     print("RUNNING LEAST SQUARES OPTIMIZATION")
@@ -31,8 +31,11 @@ def analyse_data(config, data, constraints_config):
     
     sampler = CompleteMCMCSampler(config['mechanics'], constraints_config)
     cov_matrix, std_params, samples, acceptance_rate = sampler.sample(
-        data['thetas'], data['measured_forces'], sigma_noise=1e-2, ls_result=ls_result
+        data['thetas'], data['measured_forces'], sigma_noise=float(config['data']['sigma_noise']), ls_result=ls_result
     )
+    # cov_matrix, std_params, samples, acceptance_rate = sampler.sample_independent(
+    #     data['thetas'], data['measured_forces'], sigma_noise=float(config['data']['sigma_noise'])
+    # )
     
     print(f"MCMC completed with {len(samples)} samples")
     print(f"Acceptance rate: {acceptance_rate:.3f}")
@@ -54,10 +57,10 @@ def analyse_data(config, data, constraints_config):
     print(f"LCL - MCMC mean: {mcmc_lcl_params}")
     
     # Visualize results
-    visualize_ligament_curves(config, samples, data, ls_result)
-    visualize_theta_force_curves(config, samples, data, ls_result)
-    visualize_parameter_marginals(samples, ls_result, constraints_config)
-    plt.show()
+    visualize_ligament_curves(config, samples, data, ls_result, ref_strain_lcl=ref_strain_lcl, ref_strain_mcl=ref_strain_mcl)
+    visualize_theta_force_curves(config, samples, data, ls_result, ref_strain_lcl=ref_strain_lcl, ref_strain_mcl=ref_strain_mcl)
+    visualize_parameter_marginals(samples, ls_result, constraints_config, ref_strain_lcl=ref_strain_lcl, ref_strain_mcl=ref_strain_mcl)
+    # plt.show()
     
     return {
         'cov_matrix': cov_matrix,
@@ -92,9 +95,11 @@ def collect_data(config):
     
     # Positive direction (increasing theta)
     theta = 0 * np.pi/180
-    increment = 0.3 * np.pi/180
+    increment = 0.05 * np.pi/180
     knee_model = KneeModel(config['mechanics'], log=False)
     knee_model.build_geometry()
+    # knee_model.plot_model(show_forces=True)
+    # plt.show()
 
     while True:
         result = knee_model.solve_applied([theta], mcl_params, lcl_params)
@@ -150,16 +155,15 @@ if __name__ == "__main__":
 
     results = []
 
-    reference_strains_lcl = [0.06]
-    reference_strains_mcl = [0.06]
+    reference_strains_lcl = [0.02, 0.06, 0.10]
+    reference_strains_mcl = [0.02, 0.06, 0.10]
     
-    for ref_strain_lcl in reference_strains_lcl:
-        for ref_strain_mcl in reference_strains_mcl:
+    for ref_strain_lcl, ref_strain_mcl in zip(reference_strains_lcl, reference_strains_mcl):  
             config['blankevoort_lcl']['l_0'] = config['mechanics']['right_length']/(ref_strain_lcl + 1)
             config['blankevoort_mcl']['l_0'] = config['mechanics']['left_length']/(ref_strain_mcl + 1)
-
+            print(f"LCL length: {config['blankevoort_lcl']['l_0']}, MCL length: {config['blankevoort_mcl']['l_0']}")
             data = collect_data(config)
-            result = analyse_data(config, data, constraints_config)
+            result = analyse_data(config, data, constraints_config, ref_strain_lcl=ref_strain_lcl, ref_strain_mcl=ref_strain_mcl)
             results.append({
                 'lcl_strain': ref_strain_lcl,
                 'mcl_strain': ref_strain_mcl,

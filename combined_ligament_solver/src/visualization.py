@@ -2,9 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from src.statics_model import KneeModel, blankevoort_func
 from src.ligament_optimiser import parse_constraints
+import os
 
 
-def visualize_ligament_curves(config, samples, data, ls_result):
+def visualize_ligament_curves(config, samples, data, ls_result, max_plot_samples: int = 50, ref_strain_lcl=None, ref_strain_mcl=None):
     """
     Plot length-force curves for MCL and LCL.
     - Figure 1 (LS-focused): GT (green dashed), LS (blue), and GT/LS data points.
@@ -38,93 +39,98 @@ def visualize_ligament_curves(config, samples, data, ls_result):
     ls_eval = knee_model.solve_applied(thetas_data, mcl_ls, lcl_ls)
     
     # ------------------------------------------------------------
-    # Figure 1: LS-focused plots with GT/LS curves and data points
+    # Figure 1: Combined LS and MCMC plots
     # ------------------------------------------------------------
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
     
-    # MCL plot
-    ax1.set_title('MCL Length-Force Curve')
+    # Ground truth curves (shared between subplots)
+    forces_gt_mcl = blankevoort_func(mcl_lengths, mcl_gt)
+    forces_gt_lcl = blankevoort_func(lcl_lengths, lcl_gt)
+    
+    # Least squares curves (shared between subplots)
+    forces_ls_mcl = blankevoort_func(mcl_lengths, mcl_ls)
+    forces_ls_lcl = blankevoort_func(lcl_lengths, lcl_ls)
+    
+    # Subsample for plotting to avoid clutter
+    plot_samples = samples
+    legend_label_added_mcl = False
+    legend_label_added_lcl = False
+    if isinstance(plot_samples, np.ndarray) and plot_samples.ndim == 2 and plot_samples.shape[0] > max_plot_samples:
+        idx = np.random.choice(plot_samples.shape[0], size=max_plot_samples, replace=False)
+        plot_samples = plot_samples[idx]
+        legend_label_added_mcl = True
+        legend_label_added_lcl = True
+    
+    # MCL plot (combined MCMC + LS)
+    ax1.set_title('MCL Length-Force')
     ax1.set_xlabel('Length (mm)')
     ax1.set_ylabel('Force (N)')
     
     # Ground truth MCL curve
-    forces_gt_mcl = blankevoort_func(mcl_lengths, mcl_gt)
-    ax1.plot(mcl_lengths, forces_gt_mcl, 'g--', linewidth=2, alpha=0.8, label='Ground Truth')
+    ax1.plot(mcl_lengths, forces_gt_mcl, 'g--', linewidth=2, alpha=0.7, label='Ground Truth')
+    
+    # MCMC MCL samples
+    for sample in plot_samples:
+        mcl_params = sample[:3]
+        forces_mcmc_mcl = blankevoort_func(mcl_lengths, mcl_params)
+        ax1.plot(mcl_lengths, forces_mcmc_mcl, 'r-', alpha=0.1, linewidth=0.6)
+    
+    if legend_label_added_mcl:
+        ax1.plot([], [], 'r-', alpha=0.3, linewidth=0.6, label=f'{max_plot_samples} MCMC samples')
     
     # Least squares MCL curve
-    forces_ls_mcl = blankevoort_func(mcl_lengths, mcl_ls)
-    ax1.plot(mcl_lengths, forces_ls_mcl, 'b.-', linewidth=2, alpha=0.8, label='Least Squares')
+    ax1.plot(mcl_lengths, forces_ls_mcl, 'b--', linewidth=2, alpha=0.7, label='Least Squares')
     
     # Data points (GT and LS) for MCL
-    ax1.scatter(gt_eval['mcl_lengths'], gt_eval['mcl_forces'], c='g', s=18, alpha=0.6, label='GT data')
-    ax1.scatter(ls_eval['mcl_lengths'], ls_eval['mcl_forces'], c='b', s=18, alpha=0.6, label='LS data')
+    ax1.scatter(gt_eval['mcl_lengths'], gt_eval['mcl_forces'], c='g', s=10, alpha=0.4, label='GT data')
+    ax1.scatter(ls_eval['mcl_lengths'], ls_eval['mcl_forces'], c='b', s=10, alpha=0.4, label='LS data')
     
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
-    # LCL plot
-    ax2.set_title('LCL Length-Force Curve')
+    # LCL plot (combined MCMC + LS)
+    ax2.set_title('LCL Length-Force')
     ax2.set_xlabel('Length (mm)')
     ax2.set_ylabel('Force (N)')
     
     # Ground truth LCL curve
-    forces_gt_lcl = blankevoort_func(lcl_lengths, lcl_gt)
-    ax2.plot(lcl_lengths, forces_gt_lcl, 'g--', linewidth=2, label='Ground Truth')
+    ax2.plot(lcl_lengths, forces_gt_lcl, 'g--', linewidth=2, alpha=0.7, label='Ground Truth')
+    
+    # MCMC LCL samples
+    for sample in plot_samples:
+        lcl_params = sample[3:]
+        forces_mcmc_lcl = blankevoort_func(lcl_lengths, lcl_params)
+        ax2.plot(lcl_lengths, forces_mcmc_lcl, 'r-', alpha=0.1, linewidth=0.6)
+    
+    if legend_label_added_lcl:
+        ax2.plot([], [], 'r-', alpha=0.3, linewidth=0.6, label=f'{max_plot_samples} MCMC samples')
     
     # Least squares LCL curve
-    forces_ls_lcl = blankevoort_func(lcl_lengths, lcl_ls)
-    ax2.plot(lcl_lengths, forces_ls_lcl, 'b.-', linewidth=2, label='Least Squares')
+    ax2.plot(lcl_lengths, forces_ls_lcl, 'b--', linewidth=2, alpha=0.7, label='Least Squares')
     
     # Data points (GT and LS) for LCL
-    ax2.scatter(gt_eval['lcl_lengths'], gt_eval['lcl_forces'], c='g', s=18, alpha=0.8, label='GT data')
-    ax2.scatter(ls_eval['lcl_lengths'], ls_eval['lcl_forces'], c='b', s=18, alpha=0.8, label='LS data')
+    ax2.scatter(gt_eval['lcl_lengths'], gt_eval['lcl_forces'], c='g', s=10, alpha=0.4, label='GT data')
+    ax2.scatter(ls_eval['lcl_lengths'], ls_eval['lcl_forces'], c='b', s=10, alpha=0.4, label='LS data')
     
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
-
-    # ------------------------------------------------------------
-    # Figure 2: MCMC-focused plots with many sample curves
-    # ------------------------------------------------------------
-    fig2, (bx1, bx2) = plt.subplots(1, 2, figsize=(13, 5))
-
-    # MCL panel (MCMC)
-    bx1.set_title('MCL Length-Force (MCMC)')
-    bx1.set_xlabel('Length (mm)')
-    bx1.set_ylabel('Force (N)')
-
-    # Baselines
-    bx1.plot(mcl_lengths, forces_gt_mcl, 'g--', linewidth=2, label='Ground Truth')
-    bx1.plot(mcl_lengths, forces_ls_mcl, 'b.-', linewidth=2, label='Least Squares')
-
-    # MCMC MCL samples
-    for sample in samples:
-        mcl_params = sample[:3]
-        forces_mcmc_mcl = blankevoort_func(mcl_lengths, mcl_params)
-        bx1.plot(mcl_lengths, forces_mcmc_mcl, 'r-', alpha=0.1, linewidth=0.6)
-    bx1.legend()
-    bx1.grid(True, alpha=0.3)
-
-    # LCL panel (MCMC)
-    bx2.set_title('LCL Length-Force (MCMC)')
-    bx2.set_xlabel('Length (mm)')
-    bx2.set_ylabel('Force (N)')
-
-    bx2.plot(lcl_lengths, forces_gt_lcl, 'g--', linewidth=2, label='Ground Truth')
-    bx2.plot(lcl_lengths, forces_ls_lcl, 'b.-', linewidth=2, label='Least Squares')
-
-    for sample in samples:
-        lcl_params = sample[3:]
-        forces_mcmc_lcl = blankevoort_func(lcl_lengths, lcl_params)
-        bx2.plot(lcl_lengths, forces_mcmc_lcl, 'r-', alpha=0.1, linewidth=0.6)
-    bx2.legend()
-    bx2.grid(True, alpha=0.3)
-
-    plt.tight_layout()
+    
+    # Create directory if it doesn't exist
+    os.makedirs('figures/final', exist_ok=True)
+    
+    # Save the plot with reference strain in filename
+    filename = 'ligament_curves.png'
+    if ref_strain_lcl is not None and ref_strain_mcl is not None:
+        filename = f'ligament_curves_lcl{ref_strain_lcl:.2f}_mcl{ref_strain_mcl:.2f}.png'
+    
+    filepath = os.path.join('figures', 'final', filename)
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    print(f"Saved {filepath}")
 
 
-def visualize_parameter_marginals(samples, ls_result=None, constraints_config=None):
+def visualize_parameter_marginals(samples, ls_result=None, constraints_config=None, ref_strain_lcl=None, ref_strain_mcl=None):
     """Plot marginal distributions of MCMC parameters (6D: 3 MCL + 3 LCL).
 
     Args:
@@ -162,7 +168,17 @@ def visualize_parameter_marginals(samples, ls_result=None, constraints_config=No
 
     for i in range(6):
         ax = axes[i]
-        ax.hist(params[:, i], bins=40, color='r', alpha=0.3, density=True)
+        # If bounds are available, align histogram bins and x-axis with bounds
+        if bounds_list is not None:
+            lower, upper = bounds_list[i]
+            # Create bin edges that span exactly the constraint interval
+            bin_edges = np.linspace(lower, upper, 41)
+            ax.hist(params[:, i], bins=bin_edges, color='r', alpha=0.3, density=True)
+            # Ensure x-limits and ticks align with bounds
+            ax.set_xlim(lower, upper)
+            ax.set_xticks(np.linspace(lower, upper, 5))
+        else:
+            ax.hist(params[:, i], bins=40, color='r', alpha=0.3, density=True)
         
         # Add ground truth line
         ax.axvline(gt_vals[i], color='g', linestyle='-', linewidth=2, alpha=0.8, label='GT' if i == 0 else "")
@@ -173,7 +189,9 @@ def visualize_parameter_marginals(samples, ls_result=None, constraints_config=No
         
         if bounds_list is not None:
             lower, upper = bounds_list[i]
-            ax.set_xlim(lower, upper)
+            # Draw faint lines at bounds for visual alignment
+            ax.axvline(lower, color='k', linestyle=':', linewidth=1, alpha=0.4)
+            ax.axvline(upper, color='k', linestyle=':', linewidth=1, alpha=0.4)
         ax.set_title(titles[i])
         ax.grid(True, alpha=0.2)
         
@@ -182,8 +200,20 @@ def visualize_parameter_marginals(samples, ls_result=None, constraints_config=No
             ax.legend()
 
     plt.tight_layout()
+    
+    # Create directory if it doesn't exist
+    os.makedirs('figures/final', exist_ok=True)
+    
+    # Save the plot with reference strain in filename
+    filename = 'parameter_marginals.png'
+    if ref_strain_lcl is not None and ref_strain_mcl is not None:
+        filename = f'parameter_marginals_lcl{ref_strain_lcl:.2f}_mcl{ref_strain_mcl:.2f}.png'
+    
+    filepath = os.path.join('figures', 'final', filename)
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    print(f"Saved {filepath}")
 
-def visualize_theta_force_curves(config, samples, data, ls_result):
+def visualize_theta_force_curves(config, samples, data, ls_result, max_plot_samples: int = 50, ref_strain_lcl=None, ref_strain_mcl=None):
     """
     Create applied forces vs theta plots.
     
@@ -228,17 +258,37 @@ def visualize_theta_force_curves(config, samples, data, ls_result):
     ls_forces = np.array(ls_result_curve['applied_forces']).reshape(-1)
     plt.plot(thetas_sorted, ls_forces, 'b.-', linewidth=2, label='Least Squares')
     
+    # Subsample for plotting to avoid clutter
+    plot_samples = samples
+    if isinstance(plot_samples, np.ndarray) and plot_samples.ndim == 2 and plot_samples.shape[0] > max_plot_samples:
+        idx = np.random.choice(plot_samples.shape[0], size=max_plot_samples, replace=False)
+        plot_samples = plot_samples[idx]
+
     # MCMC samples
-    for i, sample in enumerate(samples):
+    for i, sample in enumerate(plot_samples):
         mcl_params = sample[:3]
         lcl_params = sample[3:]
         mcmc_result = knee_model.solve_applied(thetas_sorted, mcl_params, lcl_params)
         mcmc_forces = np.array(mcmc_result['applied_forces']).reshape(-1)
         plt.plot(thetas_sorted, mcmc_forces, 'r-', alpha=0.1, linewidth=0.5)
+
+    plt.plot([], [], 'r-', alpha=0.3, linewidth=0.6, label=f'{max_plot_samples} MCMC samples')
     
     # Data points as scatter (use original unsorted data for scatter)
-    plt.scatter(thetas, applied_forces, color='black', s=30, alpha=0.7, label='Data', zorder=5)
+    plt.scatter(thetas, applied_forces, color='black', s=5, alpha=0.7, label='Data', zorder=5)
     
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+    
+    # Create directory if it doesn't exist
+    os.makedirs('figures/final', exist_ok=True)
+    
+    # Save the plot with reference strain in filename
+    filename = 'theta_force_curves.png'
+    if ref_strain_lcl is not None and ref_strain_mcl is not None:
+        filename = f'theta_force_curves_lcl{ref_strain_lcl:.2f}_mcl{ref_strain_mcl:.2f}.png'
+    
+    filepath = os.path.join('figures', 'final', filename)
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    print(f"Saved {filepath}")

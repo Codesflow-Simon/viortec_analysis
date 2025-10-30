@@ -1,6 +1,6 @@
 data:
-  y_noise: 1e+1
-  sigma_noise: 1e+1
+  y_noise: 1e+0
+  sigma_noise: 1e+0
 
 blankevoort_mcl: # Right side (Right leg)
     k: 33.5 # N per mm

@@ -139,7 +139,7 @@ class CompleteMCMCSampler(BaseSampler):
     Complete MCMC sampler using emcee for Bayesian inference.
     """
     
-    def __init__(self, knee_config, constraints_config, n_walkers=128, n_steps=200, n_burnin=150, num_samples=100):
+    def __init__(self, knee_config, constraints_config, n_walkers=32, n_steps=200, n_burnin=150, num_samples=32*50):
         super().__init__()
         self.n_walkers = n_walkers
         self.n_steps = n_steps
@@ -262,16 +262,7 @@ class CompleteMCMCSampler(BaseSampler):
             per_param_scale.append(0.2 * rng)
         per_param_scale = np.array(per_param_scale, dtype=np.float64)
 
-        moves = [
-            emcee.moves.KDEMove(),
-            emcee.moves.GaussianMove(cov=np.diag(per_param_scale**2)),
-            emcee.moves.StretchMove(),
-            emcee.moves.DEMove(),
-            emcee.moves.DESnookerMove(),
-            emcee.moves.WalkMove(),
-            emcee.moves.DEMove(),
-            emcee.moves.DESnookerMove(),
-        ]
+        moves = [emcee.moves.StretchMove()]
         
         sampler = emcee.EnsembleSampler(
             self.n_walkers, n_params, self.log_probability,
@@ -331,5 +322,54 @@ class CompleteMCMCSampler(BaseSampler):
             
         except:
             return -np.inf
+
+
+    def sample_independent(self, thetas, applied_forces, sigma_noise, n_candidates=5000, top_k=500):
+        """
+        Independent sampling: draw candidates uniformly within bounds and select
+        the top_k by posterior log-probability. This is not a Markov chain, but
+        provides a quick approximation and broad exploration across the bounds.
+
+        Returns (cov_matrix, std_params, samples, acceptance_rate)
+        where acceptance_rate is NaN for this method.
+        """
+        mcl_bounds = self.bounds['blankevoort_mcl']
+        lcl_bounds = self.bounds['blankevoort_lcl']
+        total_params = len(mcl_bounds) + len(lcl_bounds)
+
+        candidates = np.zeros((n_candidates, total_params), dtype=np.float64)
+
+        # Uniform sampling within bounds
+        for i, (low, up) in enumerate(mcl_bounds + lcl_bounds):
+            if up == low:
+                candidates[:, i] = low
+            else:
+                candidates[:, i] = np.random.uniform(low, up, size=n_candidates)
+
+        # Evaluate log-probability
+        log_probs = np.full(n_candidates, -np.inf, dtype=np.float64)
+        for idx in range(n_candidates):
+            log_probs[idx] = self.log_probability(candidates[idx], thetas, applied_forces, sigma_noise)
+
+        # Select top_k by log probability
+        finite_mask = np.isfinite(log_probs)
+        if not np.any(finite_mask):
+            # Fallback: return empty result
+            return np.empty((0, total_params)), np.array([]), np.empty((0, total_params)), np.nan
+
+        finite_idx = np.where(finite_mask)[0]
+        order = np.argsort(log_probs[finite_idx])[::-1]
+        top_idx = finite_idx[order[:min(top_k, len(finite_idx))]]
+        samples = candidates[top_idx]
+
+        # Stats
+        if samples.shape[0] >= 2:
+            cov_matrix = np.cov(samples, rowvar=False)
+            std_params = np.sqrt(np.diag(cov_matrix))
+        else:
+            cov_matrix = np.zeros((total_params, total_params))
+            std_params = np.zeros(total_params)
+
+        return cov_matrix, std_params, samples, np.nan
 
 

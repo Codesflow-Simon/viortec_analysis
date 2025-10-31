@@ -30,4 +30,4 @@ A joint is parameterised by theta, though the method `set_theta`. Implimentation
 `mappings.py` defines symbolic expressions of many key functions we require, and `visualiser.py` allows for plots to be made. An example model can be seen in `statics_model.py`.
 
 ### Ligament reconstruction
-If force-elongation data is gathered, we may with to model it. We model in a Bayesian approach.
+If force-elongation data is gathered, we may with to model it. We model in a Bayesian approach.# Ligament-observer-design

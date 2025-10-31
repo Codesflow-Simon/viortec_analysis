@@ -1,6 +1,6 @@
 from src.statics_model import KneeModel
 from src.ligament_optimiser import least_squares_optimize_complete_model
-from src.mcmc_sampler import CompleteMCMCSampler
+from src.mcmc_sampler import CompleteMCMCSampler, NUTSSampler
 from src.visualization import visualize_ligament_curves, visualize_theta_force_curves, visualize_parameter_marginals
 import numpy as np
 import yaml
@@ -26,35 +26,49 @@ def analyse_data(config, data, constraints_config, ref_strain_lcl=None, ref_stra
     
     # Run MCMC sampling
     print("\n" + "=" * 50)
-    print("RUNNING MCMC SAMPLING")
+    print("RUNNING SAMPLING")
     print("=" * 50)
     
+    # NUTS sampling
+    from src.mcmc_sampler import CompleteMCMCSampler
+    mcmc_sampler = CompleteMCMCSampler(config['mechanics'], constraints_config)
+    # # Previous emcee MCMC sampling (commented out)
     sampler = CompleteMCMCSampler(config['mechanics'], constraints_config)
+    
+    # Create gt_params dict for ground truth parameters
+    gt_params_dict = {
+        'blankevoort_mcl': config['blankevoort_mcl'],
+        'blankevoort_lcl': config['blankevoort_lcl']
+    }
+    
     cov_matrix, std_params, samples, acceptance_rate = sampler.sample(
-        data['thetas'], data['measured_forces'], sigma_noise=float(config['data']['sigma_noise']), ls_result=ls_result
+        data['thetas'], data['measured_forces'], sigma_noise=float(config['data']['sigma_noise']), ls_result=ls_result, gt_params=gt_params_dict
     )
-    # cov_matrix, std_params, samples, acceptance_rate = sampler.sample_independent(
+
+
+    # nuts_sampler = NUTSSampler(config['mechanics'], constraints_config, n_samples=1000, n_tune=500, random_seed=42)
+    # cov_matrix, std_params, samples, acceptance_rate = nuts_sampler.sample(
     #     data['thetas'], data['measured_forces'], sigma_noise=float(config['data']['sigma_noise'])
     # )
     
-    print(f"MCMC completed with {len(samples)} samples")
+    print(f"Samples completed with {len(samples)} samples")
     print(f"Acceptance rate: {acceptance_rate:.3f}")
     
     # Compare results
     print("\n" + "=" * 50)
-    print("COMPARISON: LEAST SQUARES vs MCMC")
+    print("COMPARISON: LEAST SQUARES vs samples")
     print("=" * 50)
     print(f"Least squares RMSE: {ls_result['rmse']:.2f}")
     print(f"Least squares MAE:  {ls_result['mae']:.2f}")
     
-    # Calculate MCMC mean parameters for comparison
-    mcmc_mcl_params = np.mean(samples[:, :4], axis=0)
-    mcmc_lcl_params = np.mean(samples[:, 4:], axis=0)
+    # Calculate NUTS mean parameters for comparison
+    nuts_mcl_params = np.mean(samples[:, :3], axis=0)
+    nuts_lcl_params = np.mean(samples[:, 3:], axis=0)
     print(f"\nParameter comparison:")
     print(f"MCL - LS: {ls_result['mcl_params']}")
-    print(f"MCL - MCMC mean: {mcmc_mcl_params}")
+    print(f"MCL - NUTS mean: {nuts_mcl_params}")
     print(f"LCL - LS: {ls_result['lcl_params']}")
-    print(f"LCL - MCMC mean: {mcmc_lcl_params}")
+    print(f"LCL - NUTS mean: {nuts_lcl_params}")
     
     # Visualize results
     visualize_ligament_curves(config, samples, data, ls_result, ref_strain_lcl=ref_strain_lcl, ref_strain_mcl=ref_strain_mcl)
@@ -114,7 +128,7 @@ def collect_data(config):
         data_lists['lcl_moments'].append(result['lcl_moments'])
         data_lists['application_moments'].append(result['application_moments'])
         theta += increment
-        print(f"Theta: {np.degrees(theta)}, Force: {result['applied_forces']}, Moment: {result['application_moments']}")
+        # print(f"Theta: {np.degrees(theta)}, Force: {result['applied_forces']}, Moment: {result['application_moments']}")
         if abs(result['application_moments']) > moment_limit:
             break
 
@@ -131,7 +145,7 @@ def collect_data(config):
         data_lists['mcl_moments'].append(result['mcl_moments'])
         data_lists['lcl_moments'].append(result['lcl_moments'])
         data_lists['application_moments'].append(result['application_moments'])
-        print(f"Theta: {np.degrees(theta)}, Force: {result['applied_forces']}, Moment: {result['application_moments']}")
+        # print(f"Theta: {np.degrees(theta)}, Force: {result['applied_forces']}, Moment: {result['application_moments']}")
         theta -= increment
         if abs(result['application_moments']) > moment_limit:
             break
@@ -155,8 +169,8 @@ if __name__ == "__main__":
 
     results = []
 
-    reference_strains_lcl = [0.02, 0.06, 0.10]
-    reference_strains_mcl = [0.02, 0.06, 0.10]
+    reference_strains_lcl = [0.03, 0.06, 0.09]
+    reference_strains_mcl = [0.03, 0.06, 0.09]
     
     for ref_strain_lcl, ref_strain_mcl in zip(reference_strains_lcl, reference_strains_mcl):  
             config['blankevoort_lcl']['l_0'] = config['mechanics']['right_length']/(ref_strain_lcl + 1)

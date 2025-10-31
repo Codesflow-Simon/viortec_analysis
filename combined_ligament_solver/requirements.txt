@@ -12,6 +12,7 @@ sympy>=1.9.0
 
 # MCMC sampling
 emcee>=3.1.0
+pymc>=5.0.0
 
 # Visualization
 matplotlib>=3.5.0

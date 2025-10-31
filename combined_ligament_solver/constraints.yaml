@@ -19,8 +19,8 @@ blankevoort_mcl:
       description: "Transition length parameter"
     l_0:
       type: between
-      lower: 86.2
-      upper: 94.8
+      lower: 85.2 # 86.2
+      upper: 95.8 # 94.8 
       description: "Reference length (mm)"
 
 blankevoort_lcl:
